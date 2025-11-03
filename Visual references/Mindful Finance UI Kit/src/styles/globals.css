@@ -1,0 +1,303 @@
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* ῥέω Base Palette */
+  --beige: #F4F1EB;
+  --petroleum: #2E4943;
+  --aqua: #9FD9C9;
+  --copper: #C77D5B;
+  --sand: #D6CBBE;
+  --white: #FFFFFF;
+  
+  /* Semantic Tokens */
+  --income: var(--aqua);
+  --expense: var(--copper);
+  --neutral: var(--sand);
+  --focus: var(--aqua);
+  --disabled: rgba(46, 73, 67, 0.3);
+  
+  /* Typography Scale */
+  --text-h1: 32px;
+  --text-h2: 24px;
+  --text-h3: 18px;
+  --text-body: 16px;
+  --text-caption: 14px;
+  --text-micro: 12px;
+  --line-height: 1.4;
+  --letter-spacing: 0.01em;
+  
+  /* Spacing System (8px increments) */
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-5: 40px;
+  --space-6: 48px;
+  --space-8: 64px;
+  --space-10: 80px;
+  --space-15: 120px;
+  
+  /* Corner Radius */
+  --radius-card: 24px;
+  --radius-input: 12px;
+  --radius-tag: 8px;
+  --radius-full: 9999px;
+  
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(46, 73, 67, 0.08);
+  --shadow-md: 0 4px 16px rgba(46, 73, 67, 0.12);
+  --shadow-lg: 0 8px 24px rgba(46, 73, 67, 0.15);
+  --shadow-petroleum: rgba(46, 73, 67, 0.1);
+  
+  /* Motion Tokens */
+  --duration-fast: 200ms;
+  --duration-normal: 400ms;
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-breath: cubic-bezier(0.45, 0.05, 0.55, 0.95);
+  
+  /* Legacy Support */
+  --font-size: 16px;
+  --background: var(--beige);
+  --foreground: var(--petroleum);
+  --card: var(--white);
+  --card-foreground: var(--petroleum);
+  --popover: var(--white);
+  --popover-foreground: var(--petroleum);
+  --primary: var(--aqua);
+  --primary-foreground: var(--petroleum);
+  --secondary: var(--copper);
+  --secondary-foreground: var(--white);
+  --muted: var(--sand);
+  --muted-foreground: var(--petroleum);
+  --accent: var(--aqua);
+  --accent-foreground: var(--petroleum);
+  --destructive: var(--copper);
+  --destructive-foreground: var(--white);
+  --border: var(--sand);
+  --input: transparent;
+  --input-background: var(--white);
+  --switch-background: var(--sand);
+  --font-weight-medium: 600;
+  --font-weight-normal: 400;
+  --ring: var(--aqua);
+  --chart-1: var(--aqua);
+  --chart-2: var(--copper);
+  --chart-3: var(--sand);
+  --chart-4: var(--petroleum);
+  --chart-5: #B8E6D5;
+  --radius: var(--radius-input);
+  --sidebar: var(--white);
+  --sidebar-foreground: var(--petroleum);
+  --sidebar-primary: var(--aqua);
+  --sidebar-primary-foreground: var(--petroleum);
+  --sidebar-accent: var(--beige);
+  --sidebar-accent-foreground: var(--petroleum);
+  --sidebar-border: var(--sand);
+  --sidebar-ring: var(--aqua);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.145 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.396 0.141 25.723);
+  --destructive-foreground: oklch(0.637 0.237 25.331);
+  --border: oklch(0.269 0 0);
+  --input: oklch(0.269 0 0);
+  --ring: oklch(0.439 0 0);
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.269 0 0);
+  --sidebar-ring: oklch(0.439 0 0);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-switch-background: var(--switch-background);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/**
+ * Base typography. This is not applied to elements which have an ancestor with a Tailwind text class.
+ */
+@layer base {
+  :where(:not(:has([class*=" text-"]), :not(:has([class^="text-"])))) {
+    h1 {
+      font-size: var(--text-h1);
+      font-weight: var(--font-weight-medium);
+      line-height: var(--line-height);
+      letter-spacing: var(--letter-spacing);
+    }
+
+    h2 {
+      font-size: var(--text-h2);
+      font-weight: var(--font-weight-medium);
+      line-height: var(--line-height);
+      letter-spacing: var(--letter-spacing);
+    }
+
+    h3 {
+      font-size: var(--text-h3);
+      font-weight: var(--font-weight-medium);
+      line-height: var(--line-height);
+      letter-spacing: var(--letter-spacing);
+    }
+
+    h4 {
+      font-size: var(--text-body);
+      font-weight: var(--font-weight-medium);
+      line-height: var(--line-height);
+      letter-spacing: var(--letter-spacing);
+    }
+
+    p {
+      font-size: var(--text-body);
+      font-weight: var(--font-weight-normal);
+      line-height: var(--line-height);
+      letter-spacing: var(--letter-spacing);
+    }
+
+    label {
+      font-size: var(--text-body);
+      font-weight: var(--font-weight-medium);
+      line-height: var(--line-height);
+    }
+
+    button {
+      font-size: var(--text-body);
+      font-weight: var(--font-weight-medium);
+      line-height: var(--line-height);
+    }
+
+    input {
+      font-size: var(--text-body);
+      font-weight: var(--font-weight-normal);
+      line-height: var(--line-height);
+    }
+  }
+}
+
+html {
+  font-size: var(--font-size);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+
+/* Custom animations */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-right {
+  from {
+    transform: translateX(-16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes breath {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.8;
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up var(--duration-normal) var(--ease-soft);
+}
+
+.animate-slide-right {
+  animation: slide-right var(--duration-normal) var(--ease-soft);
+}
+
+.animate-breath {
+  animation: breath 3s var(--ease-breath) infinite;
+}
+
+/* Glassmorphism */
+.glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
