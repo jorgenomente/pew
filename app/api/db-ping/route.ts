@@ -7,8 +7,9 @@ export async function GET() {
     await client.connect();
     const r = await client.query("select now()");
     return NextResponse.json({ ok: true, now: r.rows[0].now });
-  } catch (e:any) {
-    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unexpected error";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   } finally {
     await client.end();
   }
