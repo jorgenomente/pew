@@ -3,6 +3,7 @@ import { Calendar, DollarSign, FileText, StickyNote, Tag, X } from 'lucide-react
 import { useEffect, useMemo, useState } from 'react';
 import type { VariableExpenseFormData } from '../types';
 import { useBudget } from '../context/BudgetContext';
+import { formatAmountDisplay, normalizeAmountInput } from '../lib/currency';
 
 const EXPENSE_CATEGORY_SUGGESTIONS = [
   'Regalos',
@@ -33,7 +34,7 @@ const createInitialState = (): VariableExpenseFormData => ({
 });
 
 export function AddVariableExpenseModal({ isOpen, onClose, onAdd }: AddVariableExpenseModalProps) {
-  const { expenseCategories, registerExpenseCategory } = useBudget();
+  const { expenseCategories, registerExpenseCategory, currencyConfig } = useBudget();
   const [formData, setFormData] = useState<VariableExpenseFormData>(createInitialState);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryValue, setNewCategoryValue] = useState('');
@@ -68,96 +69,17 @@ export function AddVariableExpenseModal({ isOpen, onClose, onAdd }: AddVariableE
   );
   const showNewCategoryInput = !hasExpenseCategories || isAddingCategory;
 
-  const normalizeAmountInput = (input: string) => {
-    const cleaned = input.replace(/\s/g, '').replace(/[^\d.,]/g, '');
-
-    if (!cleaned) {
-      return '';
-    }
-
-    const lastComma = cleaned.lastIndexOf(',');
-    const lastDot = cleaned.lastIndexOf('.');
-
-    let decimalIndex = -1;
-    let hasTrailingDecimal = false;
-
-    if (lastComma !== -1) {
-      const digitsAfterComma = cleaned
-        .slice(lastComma + 1)
-        .replace(/\D/g, '');
-
-      if (digitsAfterComma.length === 0 && lastComma === cleaned.length - 1) {
-        decimalIndex = lastComma;
-        hasTrailingDecimal = true;
-      } else if (digitsAfterComma.length <= 2) {
-        decimalIndex = lastComma;
-      }
-    } else if (lastDot !== -1) {
-      const digitsAfterDot = cleaned
-        .slice(lastDot + 1)
-        .replace(/\D/g, '');
-
-      if (digitsAfterDot.length === 0 && lastDot === cleaned.length - 1) {
-        decimalIndex = lastDot;
-        hasTrailingDecimal = true;
-      } else if (digitsAfterDot.length <= 2) {
-        decimalIndex = lastDot;
-      }
-    }
-
-    let integerDigits = '';
-    let decimalDigits = '';
-
-    for (let i = 0; i < cleaned.length; i++) {
-      const char = cleaned[i];
-      if (!/\d/.test(char)) {
-        continue;
-      }
-
-      if (decimalIndex !== -1 && i > decimalIndex) {
-        decimalDigits += char;
-      } else {
-        integerDigits += char;
-      }
-    }
-
-    decimalDigits = decimalDigits.slice(0, 2);
-    integerDigits = integerDigits.replace(/^0+(?=\d)/, '');
-
-    if (!integerDigits && !decimalDigits && !hasTrailingDecimal) {
-      return '';
-    }
-
-    const normalizedInteger = integerDigits || '0';
-    if (hasTrailingDecimal) {
-      return `${normalizedInteger}.`;
-    }
-    return decimalDigits ? `${normalizedInteger}.${decimalDigits}` : normalizedInteger;
-  };
-
-  const formatAmountDisplay = (value: string) => {
-    if (!value) {
-      return '';
-    }
-
-    const hasTrailingDecimal = value.endsWith('.');
-    const baseValue = hasTrailingDecimal ? value.slice(0, -1) : value;
-
-    const [integerPartRaw = '', decimalPartRaw = ''] = baseValue.split('.');
-    const integerPart = integerPartRaw.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-    const decimalPart = hasTrailingDecimal
-      ? ','
-      : decimalPartRaw
-        ? `,${decimalPartRaw}`
-        : '';
-
-    return `${integerPart}${decimalPart}`;
-  };
-
   const formattedMonto = useMemo(
-    () => formatAmountDisplay(formData.monto),
-    [formData.monto],
+    () => formatAmountDisplay(formData.monto, currencyConfig),
+    [currencyConfig, formData.monto],
   );
+
+  const amountPlaceholder = useMemo(() => {
+    if (currencyConfig.fractionDigits <= 0) {
+      return '0';
+    }
+    return `0${currencyConfig.decimalSeparator}${'0'.repeat(currencyConfig.fractionDigits)}`;
+  }, [currencyConfig]);
 
   const commitExpenseCategory = (rawValue: string) => {
     const nextValue = rawValue.trim();
@@ -403,14 +325,14 @@ export function AddVariableExpenseModal({ isOpen, onClose, onAdd }: AddVariableE
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 text-sm opacity-70">
                       <DollarSign className="w-4 h-4" />
-                      Monto estimado
+                      {`Monto estimado (${currencyConfig.code})`}
                     </label>
                     <motion.div
                       whileHover={{ scale: 1.01 }}
                       className="relative rounded-3xl border border-white/40 backdrop-blur-sm shadow-inner bg-gradient-to-r from-[#C78C60]/20 via-white/80 to-white/60"
                     >
                       <span className="absolute left-6 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#0F3C3B]/60">
-                        ARS
+                        {currencyConfig.code}
                       </span>
                       <motion.input
                         whileFocus={{
@@ -420,10 +342,10 @@ export function AddVariableExpenseModal({ isOpen, onClose, onAdd }: AddVariableE
                         inputMode="decimal"
                         value={formattedMonto}
                         onChange={(e) => {
-                          const normalized = normalizeAmountInput(e.target.value);
+                          const normalized = normalizeAmountInput(e.target.value, currencyConfig);
                           setFormData((prev) => ({ ...prev, monto: normalized }));
                         }}
-                        placeholder="0,00"
+                        placeholder={amountPlaceholder}
                         className="w-full bg-transparent pl-20 pr-6 py-5 text-3xl font-semibold tracking-tight text-[#0F3C3B] placeholder:opacity-30 outline-none"
                         required
                       />
@@ -480,4 +402,3 @@ export function AddVariableExpenseModal({ isOpen, onClose, onAdd }: AddVariableE
     </AnimatePresence>
   );
 }
-

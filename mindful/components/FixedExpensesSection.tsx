@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wallet, CheckCircle2, Circle, Edit2, Waves, Plus } from 'lucide-react';
 import type { BudgetItem } from '../context/BudgetContext';
+import { useBudget } from '../context/BudgetContext';
 
 interface FixedExpensesSectionProps {
   expenses: BudgetItem[];
@@ -10,12 +11,6 @@ interface FixedExpensesSectionProps {
   onTogglePaid: (id: string) => void;
 }
 
-const formatCurrency = (value: number) =>
-  value.toLocaleString('es-AR', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: value % 1 === 0 ? 0 : 2,
-  });
-
 export function FixedExpensesSection({
   expenses,
   monthLabel,
@@ -23,6 +18,7 @@ export function FixedExpensesSection({
   onEdit,
   onTogglePaid,
 }: FixedExpensesSectionProps) {
+  const { formatCurrency } = useBudget();
   const totalEstimado = expenses.reduce((sum, item) => sum + item.montoEstimado, 0);
   const totalPagado = expenses.reduce((sum, item) => sum + item.pagado, 0);
   const totalPendiente = Math.max(totalEstimado - totalPagado, 0);
@@ -69,17 +65,17 @@ export function FixedExpensesSection({
               Total estimado
             </p>
             <div style={{ fontSize: '18px', fontWeight: 600 }}>
-              ${formatCurrency(totalEstimado)}
+              {formatCurrency(totalEstimado)}
             </div>
           </div>
           <div className="text-right text-xs" style={{ color: '#597370' }}>
             <div className="mb-1">
               <span className="opacity-60">Pagado </span>
-              <span style={{ fontWeight: 600 }}>${formatCurrency(totalPagado)}</span>
+              <span style={{ fontWeight: 600 }}>{formatCurrency(totalPagado)}</span>
             </div>
             <div>
               <span className="opacity-60">Pendiente </span>
-              <span style={{ fontWeight: 600 }}>${formatCurrency(totalPendiente)}</span>
+              <span style={{ fontWeight: 600 }}>{formatCurrency(totalPendiente)}</span>
             </div>
           </div>
         </div>
@@ -133,10 +129,10 @@ export function FixedExpensesSection({
                     )}
                   </div>
                   <div className="text-right">
-                    <div style={{ fontSize: '16px', fontWeight: 600 }}>${formatCurrency(expense.montoEstimado)}</div>
+                    <div style={{ fontSize: '16px', fontWeight: 600 }}>{formatCurrency(expense.montoEstimado)}</div>
                     {pendiente > 0 ? (
                       <span className="text-xs opacity-60" style={{ color: '#C78C60' }}>
-                        Pendiente ${formatCurrency(pendiente)}
+                        Pendiente {formatCurrency(pendiente)}
                       </span>
                     ) : (
                       <span className="text-xs" style={{ color: '#7ED4C1' }}>

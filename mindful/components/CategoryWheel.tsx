@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { ShoppingBag, Home, Utensils, Car, Heart, Sparkles } from 'lucide-react';
 import type { IconComponent } from '../types';
+import { useBudget } from '../context/BudgetContext';
 
 const CATEGORY_ICON_MAP: Record<string, IconComponent> = {
   Compras: ShoppingBag,
@@ -18,6 +19,7 @@ interface Category {
 }
 
 export function CategoryWheel() {
+  const { formatCurrency } = useBudget();
   const categories: Category[] = [];
   const totalAmount = categories.reduce((sum, category) => sum + category.amount, 0);
 
@@ -70,7 +72,7 @@ export function CategoryWheel() {
           >
             <Sparkles className="w-6 h-6 mx-auto mb-2 opacity-60" />
             <div className="text-xs opacity-60">Total</div>
-            <div className="text-2xl">${totalAmount.toLocaleString()}</div>
+            <div className="text-2xl">{formatCurrency(totalAmount)}</div>
           </motion.div>
         </div>
       </div>
@@ -99,7 +101,7 @@ export function CategoryWheel() {
                   <div className="text-xs opacity-60">{category.percentage}%</div>
                 </div>
               </div>
-              <div className="text-sm">${category.amount.toLocaleString()}</div>
+              <div className="text-sm">{formatCurrency(category.amount)}</div>
             </motion.div>
           );
         })}

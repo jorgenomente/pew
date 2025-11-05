@@ -1,19 +1,39 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Users, MailPlus, UserCheck, Clock, ShieldCheck, X } from 'lucide-react';
+import { Users, MailPlus, UserCheck, Clock, ShieldCheck, X, Trash2, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useBudget } from '../context/BudgetContext';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useBudget, type BudgetRole } from '../context/BudgetContext';
 import { cn } from '@/lib/utils';
 
 interface BudgetSharingDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+const ROLE_LABELS: Record<BudgetRole, string> = {
+  owner: 'Administra',
+  editor: 'Ver y editar',
+  viewer: 'Solo ver',
+};
+
+const INVITE_ROLE_OPTIONS: Array<{ value: BudgetRole; label: string; description: string }> = [
+  {
+    value: 'viewer',
+    label: 'Solo ver',
+    description: 'Puede ver el presupuesto, pero no editarlo.',
+  },
+  {
+    value: 'editor',
+    label: 'Ver y editar',
+    description: 'Puede agregar o modificar movimientos.',
+  },
+];
 
 export function BudgetSharingDialog({ open, onOpenChange }: BudgetSharingDialogProps) {
   const {
@@ -24,15 +44,39 @@ export function BudgetSharingDialog({ open, onOpenChange }: BudgetSharingDialogP
     revokeInvite,
     isBudgetAdmin,
     activeBudgetRole,
+    updateMemberRole,
+    removeMember,
   } = useBudget();
   const [email, setEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<BudgetRole>('viewer');
   const [isSending, setIsSending] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [memberUpdating, setMemberUpdating] = useState<string | null>(null);
+  const [memberRemoving, setMemberRemoving] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setEmail('');
+      setInviteError(null);
+      setIsSending(false);
+      setInviteRole('viewer');
+      setRevokingId(null);
+      setMemberUpdating(null);
+      setMemberRemoving(null);
+    }
+  }, [open]);
 
   const handleInvite = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!email.trim()) {
+    const normalizedEmail = email.trim();
+
+    if (!isBudgetAdmin) {
+      setInviteError('Solo la persona administradora puede enviar invitaciones.');
+      return;
+    }
+
+    if (!normalizedEmail) {
       setInviteError('Necesitamos un correo para enviar la invitación.');
       return;
     }
@@ -40,11 +84,16 @@ export function BudgetSharingDialog({ open, onOpenChange }: BudgetSharingDialogP
     setIsSending(true);
     setInviteError(null);
     try {
-      await inviteToBudget(email);
+      const result = await inviteToBudget(normalizedEmail, inviteRole);
+      if (!result) {
+        throw new Error('No pudimos generar la invitación. Intenta nuevamente.');
+      }
+
       toast.success('Invitación enviada', {
-        description: 'Le avisamos a la persona para que se una a tu presupuesto.',
+        description: `Le avisamos a ${normalizedEmail} para que se una con permisos de “${ROLE_LABELS[inviteRole]}”.`,
       });
       setEmail('');
+      setInviteRole('viewer');
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'No pudimos enviar la invitación. Intenta nuevamente.';
@@ -52,6 +101,40 @@ export function BudgetSharingDialog({ open, onOpenChange }: BudgetSharingDialogP
       toast.error('No pudimos enviar la invitación', { description: message });
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleMemberRoleChange = async (memberId: string, role: BudgetRole) => {
+    setMemberUpdating(memberId);
+    try {
+      const currentRole = members.find((member) => member.userId === memberId)?.role;
+      if (currentRole === role) {
+        return;
+      }
+      await updateMemberRole(memberId, role);
+      toast.success('Rol actualizado', {
+        description: `La persona ahora tiene permisos de “${ROLE_LABELS[role]}”.`,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'No pudimos actualizar el rol. Intenta nuevamente.';
+      toast.error('No pudimos actualizar el rol', { description: message });
+    } finally {
+      setMemberUpdating(null);
+    }
+  };
+
+  const handleRemoveMember = async (memberId: string) => {
+    setMemberRemoving(memberId);
+    try {
+      await removeMember(memberId);
+      toast.success('Persona removida del presupuesto');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'No pudimos quitar a la persona. Intenta nuevamente.';
+      toast.error('No pudimos quitar a la persona', { description: message });
+    } finally {
+      setMemberRemoving(null);
     }
   };
 
@@ -75,6 +158,8 @@ export function BudgetSharingDialog({ open, onOpenChange }: BudgetSharingDialogP
     }
     return a.role === 'owner' ? -1 : 1;
   });
+  const selectedInviteRole = INVITE_ROLE_OPTIONS.find((option) => option.value === inviteRole);
+  const canManageMembers = isBudgetAdmin;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -103,36 +188,93 @@ export function BudgetSharingDialog({ open, onOpenChange }: BudgetSharingDialogP
                 <p className="text-xs text-muted-foreground">
                   Tu rol actual es <strong className="capitalize">{activeBudgetRole ?? 'editor'}</strong>.
                 </p>
+                {!isBudgetAdmin ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Solo quien administra el presupuesto puede cambiar permisos o quitar personas.
+                  </p>
+                ) : null}
               </div>
 
               <div className="space-y-3">
-                {sortedMembers.map((member) => (
-                  <div
-                    key={member.userId}
-                    className={cn(
-                      'flex items-center justify-between rounded-xl border border-border/60 bg-muted/40 px-4 py-3',
-                      member.isCurrentUser && 'border-primary/50',
-                    )}
-                  >
-                    <div>
-                      <p className="text-sm font-medium">
-                        {member.email ?? 'Cuenta sin correo'}
-                        {member.isCurrentUser ? (
-                          <Badge variant="secondary" className="ml-2">
-                            Vos
+                {sortedMembers.map((member) => {
+                  const roleLabel = ROLE_LABELS[member.role] ?? member.role;
+                  const joinedAt = new Date(member.createdAt).toLocaleDateString('es-AR', { dateStyle: 'medium' });
+                  const canChangeRole = canManageMembers && !member.isCurrentUser && member.role !== 'owner';
+                  const canRemoveThisMember = canManageMembers && !member.isCurrentUser && member.role !== 'owner';
+                  const isUpdating = memberUpdating === member.userId;
+                  const isRemoving = memberRemoving === member.userId;
+
+                  return (
+                    <div
+                      key={member.userId}
+                      className={cn(
+                        'flex flex-col gap-4 rounded-xl border border-border/60 bg-muted/40 px-4 py-3 sm:flex-row sm:items-center sm:justify-between',
+                        member.isCurrentUser && 'border-primary/50',
+                      )}
+                    >
+                      <div>
+                        <p className="text-sm font-medium">
+                          {member.email ?? 'Cuenta sin correo'}
+                          {member.isCurrentUser ? (
+                            <Badge variant="secondary" className="ml-2">
+                              Vos
+                            </Badge>
+                          ) : null}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Se unió el {joinedAt}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        {member.role === 'owner' ? (
+                          <Badge variant="default" className="capitalize">
+                            <ShieldCheck className="mr-1 h-3.5 w-3.5" />
+                            {roleLabel}
                           </Badge>
+                        ) : canManageMembers ? (
+                          <Select
+                            value={member.role}
+                            onValueChange={(value) => handleMemberRoleChange(member.userId, value as BudgetRole)}
+                            disabled={!canChangeRole || isUpdating}
+                          >
+                            <SelectTrigger className="w-[180px] capitalize">
+                              <SelectValue placeholder="Permisos" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {INVITE_ROLE_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Badge variant="outline" className="capitalize">
+                            {roleLabel}
+                          </Badge>
+                        )}
+
+                        {canRemoveThisMember ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleRemoveMember(member.userId)}
+                            disabled={isRemoving}
+                          >
+                            {isRemoving ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                            <span className="sr-only">Quitar acceso</span>
+                          </Button>
                         ) : null}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Se unió el {new Date(member.createdAt).toLocaleDateString('es-AR', { dateStyle: 'medium' })}
-                      </p>
+                      </div>
                     </div>
-                    <Badge variant={member.role === 'owner' ? 'default' : 'outline'} className="capitalize">
-                      {member.role === 'owner' ? <ShieldCheck className="mr-1 h-3.5 w-3.5" /> : null}
-                      {member.role}
-                    </Badge>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
 
@@ -145,25 +287,53 @@ export function BudgetSharingDialog({ open, onOpenChange }: BudgetSharingDialogP
                   <p className="text-xs text-muted-foreground">
                     Invitá a otra persona a colaborar en el presupuesto.
                   </p>
+                  {!isBudgetAdmin ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      No tenés permisos para enviar invitaciones.
+                    </p>
+                  ) : null}
                 </div>
                 <Badge variant="outline">{outgoingInvites.length}</Badge>
               </div>
 
               <form onSubmit={handleInvite} className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <Input
-                  type="email"
-                  placeholder="correo@ejemplo.com"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  disabled={!isBudgetAdmin || isSending}
-                  className="sm:flex-1"
-                />
+                <div className="flex w-full flex-col gap-2 sm:flex-1 sm:flex-row">
+                  <Input
+                    type="email"
+                    placeholder="correo@ejemplo.com"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    disabled={!isBudgetAdmin || isSending}
+                    className="sm:flex-[2]"
+                  />
+                  <Select
+                    value={inviteRole}
+                    onValueChange={(value) => setInviteRole(value as BudgetRole)}
+                    disabled={!isBudgetAdmin || isSending}
+                  >
+                    <SelectTrigger className="w-full sm:flex-1 capitalize">
+                      <SelectValue placeholder="Permisos" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {INVITE_ROLE_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Button type="submit" disabled={!isBudgetAdmin || isSending}>
                   <MailPlus className="mr-2 h-4 w-4" />
-                  Enviar invitación
+                  {isSending ? 'Enviando...' : 'Enviar invitación'}
                 </Button>
               </form>
               {inviteError ? <p className="text-xs text-destructive">{inviteError}</p> : null}
+              {selectedInviteRole ? (
+                <p className="text-xs text-muted-foreground">
+                  {selectedInviteRole.description}
+                </p>
+              ) : null}
 
               <div className="space-y-3">
                 {outgoingInvites.length === 0 ? (
@@ -185,7 +355,7 @@ export function BudgetSharingDialog({ open, onOpenChange }: BudgetSharingDialogP
                           </span>
                           <span className="inline-flex items-center gap-1">
                             <UserCheck className="h-3.5 w-3.5" />
-                            Rol: {invite.role}
+                            Rol: {ROLE_LABELS[(invite.role as BudgetRole)] ?? invite.role}
                           </span>
                         </p>
                       </div>

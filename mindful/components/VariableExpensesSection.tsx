@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { Calendar, ClipboardList, Plus, StickyNote, Tag, Trash2 } from 'lucide-react';
 import type { VariableExpense } from '../context/BudgetContext';
+import { useBudget } from '../context/BudgetContext';
 
 interface VariableExpensesSectionProps {
   expenses: VariableExpense[];
@@ -8,12 +9,6 @@ interface VariableExpensesSectionProps {
   onAdd: () => void;
   onRemove: (id: string) => void;
 }
-
-const formatCurrency = (value: number) =>
-  value.toLocaleString('es-AR', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: value % 1 === 0 ? 0 : 2,
-  });
 
 const formatDate = (value?: string) => {
   if (!value) {
@@ -35,6 +30,7 @@ export function VariableExpensesSection({
   onAdd,
   onRemove,
 }: VariableExpensesSectionProps) {
+  const { formatCurrency } = useBudget();
   const descriptor = monthLabel?.toLowerCase?.() ?? 'este mes';
   const sortedExpenses = [...expenses].sort((a, b) => {
     const dateA = a.fecha ? new Date(a.fecha).getTime() : 0;
@@ -87,7 +83,7 @@ export function VariableExpensesSection({
               Total planificado
             </p>
             <div style={{ fontSize: '18px', fontWeight: 600 }}>
-              ${formatCurrency(total)}
+              {formatCurrency(total)}
             </div>
           </div>
         </div>
@@ -130,7 +126,7 @@ export function VariableExpensesSection({
                     </div>
                   </div>
                   <div className="text-right">
-                    <div style={{ fontSize: '16px', fontWeight: 600 }}>${formatCurrency(expense.monto)}</div>
+                    <div style={{ fontSize: '16px', fontWeight: 600 }}>{formatCurrency(expense.monto)}</div>
                   </div>
                 </div>
 

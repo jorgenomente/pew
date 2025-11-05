@@ -3,6 +3,7 @@ import { X, Calendar, User, FileText, DollarSign, Tag } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MovementFormData, MovementType } from '../types';
 import { useBudget } from '../context/BudgetContext';
+import { formatAmountDisplay, normalizeAmountInput } from '../lib/currency';
 
 const INCOME_CATEGORY_OPTIONS = ['Salario', 'Freelance', 'Inversión', 'Otro'] as const;
 const EXPENSE_CATEGORY_SUGGESTIONS = [
@@ -39,7 +40,12 @@ export function AddMovementModal({
   incomeOnly = false,
   expenseOnly = false,
 }: AddMovementModalProps) {
-  const { personaOptions, expenseCategories, registerExpenseCategory } = useBudget();
+  const {
+    personaOptions,
+    expenseCategories,
+    registerExpenseCategory,
+    currencyConfig,
+  } = useBudget();
   const basePersonas = personaOptions;
   const personaPreset = defaultPersona?.trim();
   const personaSelectOptions = useMemo(() => {
@@ -154,96 +160,17 @@ export function AddMovementModal({
     commitExpenseCategory(suggestion);
   };
 
-  const normalizeAmountInput = (input: string) => {
-    const cleaned = input.replace(/\s/g, '').replace(/[^\d.,]/g, '');
-
-    if (!cleaned) {
-      return '';
-    }
-
-    const lastComma = cleaned.lastIndexOf(',');
-    const lastDot = cleaned.lastIndexOf('.');
-
-    let decimalIndex = -1;
-    let hasTrailingDecimal = false;
-
-    if (lastComma !== -1) {
-      const digitsAfterComma = cleaned
-        .slice(lastComma + 1)
-        .replace(/\D/g, '');
-
-      if (digitsAfterComma.length === 0 && lastComma === cleaned.length - 1) {
-        decimalIndex = lastComma;
-        hasTrailingDecimal = true;
-      } else if (digitsAfterComma.length <= 2) {
-        decimalIndex = lastComma;
-      }
-    } else if (lastDot !== -1) {
-      const digitsAfterDot = cleaned
-        .slice(lastDot + 1)
-        .replace(/\D/g, '');
-
-      if (digitsAfterDot.length === 0 && lastDot === cleaned.length - 1) {
-        decimalIndex = lastDot;
-        hasTrailingDecimal = true;
-      } else if (digitsAfterDot.length <= 2) {
-        decimalIndex = lastDot;
-      }
-    }
-
-    let integerDigits = '';
-    let decimalDigits = '';
-
-    for (let i = 0; i < cleaned.length; i++) {
-      const char = cleaned[i];
-      if (!/\d/.test(char)) {
-        continue;
-      }
-
-      if (decimalIndex !== -1 && i > decimalIndex) {
-        decimalDigits += char;
-      } else {
-        integerDigits += char;
-      }
-    }
-
-    decimalDigits = decimalDigits.slice(0, 2);
-    integerDigits = integerDigits.replace(/^0+(?=\d)/, '');
-
-    if (!integerDigits && !decimalDigits && !hasTrailingDecimal) {
-      return '';
-    }
-
-    const normalizedInteger = integerDigits || '0';
-    if (hasTrailingDecimal) {
-      return `${normalizedInteger}.`;
-    }
-    return decimalDigits ? `${normalizedInteger}.${decimalDigits}` : normalizedInteger;
-  };
-
-  const formatAmountDisplay = (value: string) => {
-    if (!value) {
-      return '';
-    }
-
-    const hasTrailingDecimal = value.endsWith('.');
-    const baseValue = hasTrailingDecimal ? value.slice(0, -1) : value;
-
-    const [integerPartRaw = '', decimalPartRaw = ''] = baseValue.split('.');
-    const integerPart = integerPartRaw.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-    const decimalPart = hasTrailingDecimal
-      ? ','
-      : decimalPartRaw
-        ? `,${decimalPartRaw}`
-        : '';
-
-    return `${integerPart}${decimalPart}`;
-  };
-
   const formattedMonto = useMemo(
-    () => formatAmountDisplay(formData.monto),
-    [formData.monto],
+    () => formatAmountDisplay(formData.monto, currencyConfig),
+    [currencyConfig, formData.monto],
   );
+
+  const amountPlaceholder = useMemo(() => {
+    if (currencyConfig.fractionDigits <= 0) {
+      return '0';
+    }
+    return `0${currencyConfig.decimalSeparator}${'0'.repeat(currencyConfig.fractionDigits)}`;
+  }, [currencyConfig]);
 
   const headerTitle = incomeOnly
     ? 'Registrar mis ingresos'
@@ -266,10 +193,10 @@ export function AddMovementModal({
       ? 'Ej: Bono anual'
       : 'Ej: Alquiler, Expensas...';
   const montoLabel = incomeOnly
-    ? 'Monto a registrar'
+    ? `Monto a registrar (${currencyConfig.code})`
     : expenseOnly
-      ? 'Monto mensual estimado'
-      : 'Monto (ARS)';
+      ? `Monto mensual estimado (${currencyConfig.code})`
+      : `Monto (${currencyConfig.code})`;
   const fechaLabel =
     incomeOnly || tipo === 'income'
       ? 'Lo recibo aproximadamente el'
@@ -500,7 +427,7 @@ export function AddMovementModal({
         }`}
       >
         <span className="absolute left-6 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#0F3C3B]/60">
-          ARS
+          {currencyConfig.code}
         </span>
         <motion.input
           whileFocus={{
@@ -512,10 +439,10 @@ export function AddMovementModal({
           inputMode="decimal"
           value={formattedMonto}
           onChange={(e) => {
-            const normalized = normalizeAmountInput(e.target.value);
+            const normalized = normalizeAmountInput(e.target.value, currencyConfig);
             setFormData((prev) => ({ ...prev, monto: normalized }));
           }}
-          placeholder="0,00"
+          placeholder={amountPlaceholder}
           className="w-full bg-transparent pl-20 pr-6 py-5 text-3xl font-semibold tracking-tight text-[#0F3C3B] placeholder:opacity-30 outline-none"
           required
         />

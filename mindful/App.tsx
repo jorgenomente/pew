@@ -13,8 +13,9 @@ import { AddMovementModal } from "./components/AddMovementModal";
 import { FloatingActionButton } from "./components/FloatingActionButton";
 import { ResponsiveWrapper } from "./components/ResponsiveWrapper";
 import { BudgetSharingDialog } from "./components/BudgetSharingDialog";
+import { SettingsDialog } from "./components/SettingsDialog";
 import { BudgetProvider, useBudget } from "./context/BudgetContext";
-import { Bell, User, Plus, UserPlus } from "lucide-react";
+import { Bell, User, Plus, UserPlus, Settings } from "lucide-react";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -44,8 +45,10 @@ function AppContent() {
     incomingInvites,
     acceptInvite,
     isBudgetAdmin,
+    currencyCode,
   } = useBudget();
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [acceptingInviteId, setAcceptingInviteId] = useState<string | null>(null);
   const [isSigningOut, startSignOut] = useTransition();
 
@@ -212,6 +215,21 @@ function AppContent() {
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
+                    setIsSettingsOpen(true);
+                  }}
+                >
+                  <div className="flex w-full items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <Settings className="h-4 w-4" />
+                      Configuración
+                    </span>
+                    <span className="text-xs text-muted-foreground">{currencyCode}</span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
                     handleSignOut();
                   }}
                   disabled={isSigningOut}
@@ -282,8 +300,8 @@ function AppContent() {
                     <span className="text-sm opacity-60" style={{ color: '#597370' }}>tu balance fluye</span>
                   </div>
                   <FlowingBalanceChart 
-                    income={getTotalIncome() / 1000} 
-                    expenses={getTotalExpenses() / 1000} 
+                    income={getTotalIncome()} 
+                    expenses={getTotalExpenses()} 
                   />
                 </motion.section>
 
@@ -427,6 +445,7 @@ function AppContent() {
         onClose={() => setIsMovementModalOpen(false)}
         onAdd={handleAddMovement}
       />
+      <SettingsDialog isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       <BudgetSharingDialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen} />
     </div>
   );

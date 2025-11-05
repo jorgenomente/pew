@@ -2,6 +2,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileText, DollarSign } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import type { BudgetItem, IncomeEntry } from '../context/BudgetContext';
+import { useBudget } from '../context/BudgetContext';
+import {
+  formatAmountDisplay,
+  normalizeAmountInput,
+  numberToInputValue,
+  parseAmount,
+} from '../lib/currency';
 
 interface EditItemModalProps {
   isOpen: boolean;
@@ -28,6 +35,7 @@ export function EditItemModal({
   item,
   type,
 }: EditItemModalProps) {
+  const { currencyConfig } = useBudget();
   const [formData, setFormData] = useState({
     concepto: '',
     montoEstimado: '',
@@ -48,8 +56,8 @@ export function EditItemModal({
       const frame = window.requestAnimationFrame(() =>
         setFormData({
           concepto: item.fuente || '',
-          montoEstimado: item.monto?.toString() || '',
-          montoPagado: item.monto?.toString() || '',
+          montoEstimado: numberToInputValue(item.monto ?? 0, currencyConfig),
+          montoPagado: numberToInputValue(item.monto ?? 0, currencyConfig),
           nota: '',
         })
       );
@@ -64,14 +72,14 @@ export function EditItemModal({
     const frame = window.requestAnimationFrame(() =>
       setFormData({
         concepto: item.concepto || '',
-        montoEstimado: item.montoEstimado?.toString() || '',
-        montoPagado: item.pagado?.toString() || '',
+        montoEstimado: numberToInputValue(item.montoEstimado ?? 0, currencyConfig),
+        montoPagado: numberToInputValue(item.pagado ?? 0, currencyConfig),
         nota: item.nota || '',
       })
     );
 
     return () => window.cancelAnimationFrame(frame);
-  }, [item, isOpen, type]);
+  }, [currencyConfig, item, isOpen, type]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,113 +123,26 @@ export function EditItemModal({
     onClose();
   };
 
-  const parseAmount = (value: string) => {
-    const normalized = value.endsWith('.') ? value.slice(0, -1) : value;
-    if (!normalized) {
-      return 0;
-    }
-    const parsed = Number.parseFloat(normalized);
-    return Number.isNaN(parsed) ? 0 : parsed;
-  };
-
-  const normalizeAmountInput = (input: string) => {
-    const cleaned = input.replace(/\s/g, '').replace(/[^\d.,]/g, '');
-
-    if (!cleaned) {
-      return '';
-    }
-
-    const lastComma = cleaned.lastIndexOf(',');
-    const lastDot = cleaned.lastIndexOf('.');
-
-    let decimalIndex = -1;
-    let hasTrailingDecimal = false;
-
-    if (lastComma !== -1) {
-      const digitsAfterComma = cleaned
-        .slice(lastComma + 1)
-        .replace(/\D/g, '');
-
-      if (digitsAfterComma.length === 0 && lastComma === cleaned.length - 1) {
-        decimalIndex = lastComma;
-        hasTrailingDecimal = true;
-      } else if (digitsAfterComma.length <= 2) {
-        decimalIndex = lastComma;
-      }
-    } else if (lastDot !== -1) {
-      const digitsAfterDot = cleaned
-        .slice(lastDot + 1)
-        .replace(/\D/g, '');
-
-      if (digitsAfterDot.length === 0 && lastDot === cleaned.length - 1) {
-        decimalIndex = lastDot;
-        hasTrailingDecimal = true;
-      } else if (digitsAfterDot.length <= 2) {
-        decimalIndex = lastDot;
-      }
-    }
-
-    let integerDigits = '';
-    let decimalDigits = '';
-
-    for (let i = 0; i < cleaned.length; i++) {
-      const char = cleaned[i];
-      if (!/\d/.test(char)) {
-        continue;
-      }
-
-      if (decimalIndex !== -1 && i > decimalIndex) {
-        decimalDigits += char;
-      } else {
-        integerDigits += char;
-      }
-    }
-
-    decimalDigits = decimalDigits.slice(0, 2);
-    integerDigits = integerDigits.replace(/^0+(?=\d)/, '');
-
-    if (!integerDigits && !decimalDigits && !hasTrailingDecimal) {
-      return '';
-    }
-
-    const normalizedInteger = integerDigits || '0';
-    if (hasTrailingDecimal) {
-      return `${normalizedInteger}.`;
-    }
-    return decimalDigits ? `${normalizedInteger}.${decimalDigits}` : normalizedInteger;
-  };
-
-  const formatAmountDisplay = (value: string) => {
-    if (!value) {
-      return '';
-    }
-
-    const hasTrailingDecimal = value.endsWith('.');
-    const baseValue = hasTrailingDecimal ? value.slice(0, -1) : value;
-
-    const [integerPartRaw = '', decimalPartRaw = ''] = baseValue.split('.');
-    const integerPart = integerPartRaw.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-    const decimalPart = hasTrailingDecimal
-      ? ','
-      : decimalPartRaw
-        ? `,${decimalPartRaw}`
-        : '';
-
-    return `${integerPart}${decimalPart}`;
-  };
 
   const formattedMontoEstimado = useMemo(
-    () => formatAmountDisplay(formData.montoEstimado),
-    [formData.montoEstimado],
+    () => formatAmountDisplay(formData.montoEstimado, currencyConfig),
+    [currencyConfig, formData.montoEstimado],
   );
 
   const formattedMontoPagado = useMemo(
-    () => formatAmountDisplay(formData.montoPagado),
-    [formData.montoPagado],
+    () => formatAmountDisplay(formData.montoPagado, currencyConfig),
+    [currencyConfig, formData.montoPagado],
   );
 
+  const amountPlaceholder = useMemo(() => {
+    if (currencyConfig.fractionDigits <= 0) {
+      return '0';
+    }
+    return `0${currencyConfig.decimalSeparator}${'0'.repeat(currencyConfig.fractionDigits)}`;
+  }, [currencyConfig]);
+
   const porcentajePagado = formData.montoEstimado && formData.montoPagado
-    ? (parseFloat(formData.montoPagado) / parseFloat(formData.montoEstimado)) * 100
+    ? (parseAmount(formData.montoPagado) / parseAmount(formData.montoEstimado)) * 100
     : 0;
 
   return (
@@ -290,7 +211,9 @@ export function EditItemModal({
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 text-sm opacity-70">
                     <DollarSign className="w-4 h-4" />
-                    {type === 'income' ? 'Monto total (ARS)' : 'Monto estimado (ARS)'}
+                    {type === 'income'
+                      ? `Monto total (${currencyConfig.code})`
+                      : `Monto estimado (${currencyConfig.code})`}
                   </label>
                   <motion.input
                     whileFocus={{
@@ -300,10 +223,10 @@ export function EditItemModal({
                     inputMode="decimal"
                     value={formattedMontoEstimado}
                     onChange={(e) => {
-                      const normalized = normalizeAmountInput(e.target.value);
+                      const normalized = normalizeAmountInput(e.target.value, currencyConfig);
                       setFormData((prev) => ({ ...prev, montoEstimado: normalized }));
                     }}
-                    placeholder="0,00"
+                    placeholder={amountPlaceholder}
                     className="w-full px-4 py-3 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/40 transition-all outline-none"
                     required
                   />
@@ -314,7 +237,7 @@ export function EditItemModal({
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 text-sm opacity-70">
                       <DollarSign className="w-4 h-4" />
-                      Monto pagado (ARS)
+                      {`Monto pagado (${currencyConfig.code})`}
                     </label>
                     <motion.input
                       whileFocus={{
@@ -324,10 +247,10 @@ export function EditItemModal({
                       inputMode="decimal"
                       value={formattedMontoPagado}
                       onChange={(e) => {
-                        const normalized = normalizeAmountInput(e.target.value);
+                        const normalized = normalizeAmountInput(e.target.value, currencyConfig);
                         setFormData((prev) => ({ ...prev, montoPagado: normalized }));
                       }}
-                      placeholder="0,00"
+                      placeholder={amountPlaceholder}
                       className="w-full px-4 py-3 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/40 transition-all outline-none"
                     />
                   </div>

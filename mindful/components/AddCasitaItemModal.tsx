@@ -1,7 +1,8 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Home, DollarSign, FileText } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { CasitaItemFormData } from '../types';
+import { useBudget } from '../context/BudgetContext';
 
 interface AddCasitaItemModalProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface AddCasitaItemModalProps {
 }
 
 export function AddCasitaItemModal({ isOpen, onClose, onAdd }: AddCasitaItemModalProps) {
+  const { currencyConfig } = useBudget();
   const [formData, setFormData] = useState<CasitaItemFormData>({
     concepto: '',
     montoEstimado: '',
@@ -17,6 +19,13 @@ export function AddCasitaItemModal({ isOpen, onClose, onAdd }: AddCasitaItemModa
     categoria: 'hogar',
     nota: '',
   });
+
+  const amountPlaceholder = useMemo(() => {
+    if (currencyConfig.fractionDigits <= 0) {
+      return '0';
+    }
+    return `0${currencyConfig.decimalSeparator}${'0'.repeat(currencyConfig.fractionDigits)}`;
+  }, [currencyConfig]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,7 +113,7 @@ export function AddCasitaItemModal({ isOpen, onClose, onAdd }: AddCasitaItemModa
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 text-sm opacity-70">
                     <DollarSign className="w-4 h-4" />
-                    Monto estimado (ARS)
+                    {`Monto estimado (${currencyConfig.code})`}
                   </label>
                   <motion.input
                     whileFocus={{
@@ -113,7 +122,7 @@ export function AddCasitaItemModal({ isOpen, onClose, onAdd }: AddCasitaItemModa
                     type="number"
                     value={formData.montoEstimado}
                     onChange={(e) => setFormData({ ...formData, montoEstimado: e.target.value })}
-                    placeholder="0.00"
+                    placeholder={amountPlaceholder}
                     className="w-full px-4 py-3 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/40 transition-all outline-none placeholder:opacity-40"
                     required
                   />
@@ -123,7 +132,7 @@ export function AddCasitaItemModal({ isOpen, onClose, onAdd }: AddCasitaItemModa
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 text-sm opacity-70">
                     <DollarSign className="w-4 h-4" />
-                    Monto pagado (ARS)
+                    {`Monto pagado (${currencyConfig.code})`}
                   </label>
                   <motion.input
                     whileFocus={{
@@ -132,7 +141,7 @@ export function AddCasitaItemModal({ isOpen, onClose, onAdd }: AddCasitaItemModa
                     type="number"
                     value={formData.pagado}
                     onChange={(e) => setFormData({ ...formData, pagado: e.target.value })}
-                    placeholder="0.00"
+                    placeholder={amountPlaceholder}
                     className="w-full px-4 py-3 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/40 transition-all outline-none placeholder:opacity-40"
                   />
                 </div>

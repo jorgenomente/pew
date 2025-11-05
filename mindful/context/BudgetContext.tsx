@@ -13,6 +13,14 @@ import {
 import { useSupabase } from '@/components/supabase-provider';
 import type { IconComponent, MovementFormData, Persona, VariableExpenseFormData } from '../types';
 import { DEFAULT_PERSONAS } from '../types';
+import {
+  CurrencyCode,
+  CurrencyFormatConfig,
+  DEFAULT_CURRENCY_CODE,
+  getCurrencyConfig,
+  useCurrencyFormatter,
+  parseAmount,
+} from '../lib/currency';
 
 const DEFAULT_PERSONA_HUES = [210, 20, 150, 310, 115, 45];
 const STORAGE_BASE_KEY = 'mindful-budget-state-v1';
@@ -52,7 +60,7 @@ export interface VariableExpense {
   nota?: string;
 }
 
-type BudgetRole = 'owner' | 'editor';
+export type BudgetRole = 'owner' | 'editor' | 'viewer';
 type InviteStatus = 'pending' | 'accepted' | 'revoked';
 
 interface BudgetSummary {
@@ -112,6 +120,8 @@ interface BudgetContextType {
   budgetName: string;
   personaOptions: Persona[];
   personas: Persona[];
+  currencyCode: CurrencyCode;
+  currencyConfig: CurrencyFormatConfig;
   setActiveBudget: (budgetId: string) => void;
   setSelectedMonth: (month: number) => void;
   setSelectedYear: (year: number) => void;
@@ -122,7 +132,7 @@ interface BudgetContextType {
   getPersonaTotals: () => { persona: Persona; total: number }[];
   toggleRecibido: (id: string) => void;
   addMovement: (movement: MovementFormData) => void;
-  inviteToBudget: (email: string) => Promise<BudgetInviteSummary | null>;
+  inviteToBudget: (email: string, role: BudgetRole) => Promise<BudgetInviteSummary | null>;
   revokeInvite: (inviteId: string) => Promise<void>;
   acceptInvite: (token: string) => Promise<string | null>;
   refreshMembership: () => Promise<void>;
@@ -143,6 +153,10 @@ interface BudgetContextType {
   registerExpenseCategory: (categoria: string) => void;
   addVariableExpense: (expense: VariableExpenseFormData) => void;
   updateVariableExpense: (expense: VariableExpense) => void;
+  updateMemberRole: (userId: string, role: BudgetRole) => Promise<void>;
+  removeMember: (userId: string) => Promise<void>;
+  setCurrencyCode: (code: CurrencyCode) => void;
+  formatCurrency: (value: number, options?: { withSymbol?: boolean }) => string;
 }
 
 const meses = [
@@ -270,6 +284,7 @@ interface BudgetStateSnapshot {
   templateIncomes: IncomeEntry[];
   personaThemes: Record<string, number>;
   expenseCategories: string[];
+  currencyCode: CurrencyCode;
 }
 
 type RemoteSyncStatus = 'idle' | 'loading' | 'ready';
@@ -455,6 +470,10 @@ const sanitizeBudgetState = (raw: unknown): BudgetStateSnapshot | null => {
     return acc;
   }, { ...parsedThemes });
 
+  const currencyCodeRaw =
+    typeof raw.currencyCode === 'string' ? raw.currencyCode : DEFAULT_CURRENCY_CODE;
+  const currencyCode = getCurrencyConfig(currencyCodeRaw).code;
+
   return {
     selectedMonth,
     selectedYear,
@@ -466,6 +485,7 @@ const sanitizeBudgetState = (raw: unknown): BudgetStateSnapshot | null => {
     templateIncomes,
     personaThemes,
     expenseCategories,
+    currencyCode,
   };
 };
 
@@ -518,6 +538,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
   const [expenses, setExpenses] = useState<BudgetItem[]>([]);
   const [expenseCategories, setExpenseCategories] = useState<string[]>([]);
   const [variableExpensesByMonth, setVariableExpensesByMonth] = useState<Record<string, VariableExpense[]>>({});
+  const [currencyCode, setCurrencyCodeState] = useState<CurrencyCode>(DEFAULT_CURRENCY_CODE);
   const [templateIncomes, setTemplateIncomes] = useState<IncomeEntry[]>([]);
   const templateIncomesRef = useRef<IncomeEntry[]>([]);
   const [hasHydrated, setHasHydrated] = useState(false);
@@ -533,6 +554,23 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
     return `${ACTIVE_BUDGET_KEY_BASE}-${userId}`;
   }, [userId]);
   const isBudgetAdmin = activeBudgetRole === 'owner';
+
+  const currencyConfig = useMemo(
+    () => getCurrencyConfig(currencyCode),
+    [currencyCode],
+  );
+  const { format: baseCurrencyFormatter } = useCurrencyFormatter(currencyConfig);
+
+  const formatCurrency = useCallback(
+    (value: number, options?: { withSymbol?: boolean }) =>
+      baseCurrencyFormatter(value, options?.withSymbol ?? true),
+    [baseCurrencyFormatter],
+  );
+
+  const handleSetCurrencyCode = useCallback((code: CurrencyCode) => {
+    const nextConfig = getCurrencyConfig(code);
+    setCurrencyCodeState(nextConfig.code);
+  }, []);
 
   const syncTemplate = useCallback((entries: IncomeEntry[]) => {
     templateIncomesRef.current = entries;
@@ -551,7 +589,8 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
     setExpenses([]);
     setVariableExpensesByMonth({});
     setExpenseCategories([]);
-  }, [syncTemplate]);
+    setCurrencyCodeState(DEFAULT_CURRENCY_CODE);
+  }, [setCurrencyCodeState, syncTemplate]);
 
   const currentMonthKey = getMonthKey(selectedYear, selectedMonth);
   const incomes = incomesByMonth[currentMonthKey] ?? [];
@@ -568,7 +607,8 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
     setExpenses(snapshot.expenses);
     setVariableExpensesByMonth(snapshot.variableExpensesByMonth);
     setExpenseCategories(snapshot.expenseCategories);
-  }, [syncTemplate]);
+    setCurrencyCodeState(snapshot.currencyCode);
+  }, [setCurrencyCodeState, syncTemplate]);
 
   const createSnapshot = useCallback((): BudgetStateSnapshot => {
     const incomesSnapshot = Object.entries(incomesByMonth).reduce<Record<string, IncomeEntry[]>>(
@@ -598,8 +638,9 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       templateIncomes: templateIncomes.map((income) => ({ ...income })),
       personaThemes: { ...personaThemes },
       expenseCategories: [...expenseCategories],
+      currencyCode,
     };
-  }, [selectedMonth, selectedYear, budgetName, personas, incomesByMonth, expenses, variableExpensesByMonth, templateIncomes, personaThemes, expenseCategories]);
+  }, [selectedMonth, selectedYear, budgetName, personas, incomesByMonth, expenses, variableExpensesByMonth, templateIncomes, personaThemes, expenseCategories, currencyCode]);
 
   const fetchBudgets = useCallback(async (preferredActiveId?: string) => {
     if (!userId) {
@@ -1298,7 +1339,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
   };
 
   const addMovement = (movement: MovementFormData) => {
-    const monto = Number.parseFloat(movement.monto) || 0;
+    const monto = parseAmount(movement.monto);
 
     if (movement.tipo === 'income') {
       const fallbackPersona = personas[0] ?? DEFAULT_PERSONAS[0];
@@ -1343,7 +1384,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
   };
 
   const addVariableExpense = (expense: VariableExpenseFormData) => {
-    const monto = Number.parseFloat(expense.monto) || 0;
+    const monto = parseAmount(expense.monto);
     const categoria = expense.categoria?.trim();
     const concepto = expense.concepto?.trim() || 'Gasto';
     const fecha = expense.fecha?.trim();
@@ -1405,7 +1446,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
   };
 
   const inviteToBudget = useCallback(
-    async (email: string) => {
+    async (email: string, role: BudgetRole) => {
       if (!activeBudgetId || activeBudgetRole !== 'owner') {
         return null;
       }
@@ -1415,9 +1456,13 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
         return null;
       }
 
+      const allowedRoles: BudgetRole[] = ['editor', 'viewer'];
+      const inviteRole: BudgetRole = allowedRoles.includes(role) ? role : 'viewer';
+
       const { data, error } = await supabase.rpc('create_budget_invite', {
         p_budget_id: activeBudgetId,
         p_email: normalizedEmail,
+        p_role: inviteRole,
       });
 
       if (error) {
@@ -1448,6 +1493,60 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       return invite;
     },
     [activeBudgetId, activeBudgetRole, refreshIncomingInvites, refreshOutgoingInvites, supabase],
+  );
+
+  const updateMemberRole = useCallback(
+    async (memberId: string, role: BudgetRole) => {
+      if (!activeBudgetId || activeBudgetRole !== 'owner') {
+        throw new Error('No tenés permisos para actualizar roles.');
+      }
+      const allowedRoles: BudgetRole[] = ['editor', 'viewer'];
+      if (!allowedRoles.includes(role)) {
+        throw new Error('Rol no válido.');
+      }
+      if (!memberId || memberId === userId) {
+        throw new Error('No podés cambiar tu propio rol.');
+      }
+
+      const { error } = await supabase
+        .from('budget_members')
+        .update({ role })
+        .eq('budget_id', activeBudgetId)
+        .eq('user_id', memberId);
+
+      if (error) {
+        console.error('No se pudo actualizar el rol del miembro:', error);
+        throw error;
+      }
+
+      await refreshBudgetMembers(activeBudgetId);
+    },
+    [activeBudgetId, activeBudgetRole, refreshBudgetMembers, supabase, userId],
+  );
+
+  const removeMember = useCallback(
+    async (memberId: string) => {
+      if (!activeBudgetId || activeBudgetRole !== 'owner') {
+        throw new Error('No tenés permisos para quitar personas.');
+      }
+      if (!memberId || memberId === userId) {
+        throw new Error('No podés quitar tu propia cuenta.');
+      }
+
+      const { error } = await supabase
+        .from('budget_members')
+        .delete()
+        .eq('budget_id', activeBudgetId)
+        .eq('user_id', memberId);
+
+      if (error) {
+        console.error('No se pudo quitar al miembro del presupuesto:', error);
+        throw error;
+      }
+
+      await refreshBudgetMembers(activeBudgetId);
+    },
+    [activeBudgetId, activeBudgetRole, refreshBudgetMembers, supabase, userId],
   );
 
   const revokeInvite = useCallback(
@@ -1621,6 +1720,8 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
         budgetName,
         personaOptions,
         personas,
+        currencyCode,
+        currencyConfig,
         setActiveBudget,
         setSelectedMonth,
         setSelectedYear,
@@ -1629,10 +1730,13 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
         getTotalExpenses,
         getBalance,
         getPersonaTotals,
+        formatCurrency,
         toggleRecibido,
         addMovement,
         addVariableExpense,
         inviteToBudget,
+        updateMemberRole,
+        removeMember,
         revokeInvite,
         acceptInvite,
         refreshMembership,
@@ -1652,6 +1756,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
         getMonthName,
         expenseCategories,
         registerExpenseCategory,
+        setCurrencyCode: handleSetCurrencyCode,
       }}
     >
       {children}

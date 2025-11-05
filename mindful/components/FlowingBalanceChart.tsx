@@ -7,7 +7,7 @@ interface FlowingBalanceChartProps {
 }
 
 export function FlowingBalanceChart({ income, expenses }: FlowingBalanceChartProps) {
-  const { getMonthName } = useBudget();
+  const { getMonthName, formatCurrency } = useBudget();
 
   const balance = income - expenses;
   const total = income + expenses;
@@ -95,7 +95,7 @@ export function FlowingBalanceChart({ income, expenses }: FlowingBalanceChartPro
               color: balance >= 0 ? '#7ED4C1' : '#C78C60'
             }}
           >
-            ${balance.toLocaleString()}k
+            {formatCurrency(balance)}
           </motion.div>
         </motion.div>
       </div>
@@ -104,13 +104,13 @@ export function FlowingBalanceChart({ income, expenses }: FlowingBalanceChartPro
       <div className="absolute top-6 left-6 flex items-center gap-2">
         <div className="w-3 h-3 rounded-full bg-[#7ED4C1]" />
         <span className="text-sm opacity-70" style={{ fontSize: '14px' }}>
-          Ingresos ${income.toLocaleString()}k
+          Ingresos {formatCurrency(income)}
         </span>
       </div>
       <div className="absolute bottom-6 right-6 flex items-center gap-2">
         <div className="w-3 h-3 rounded-full bg-[#C78C60]" />
         <span className="text-sm opacity-70" style={{ fontSize: '14px' }}>
-          Gastos ${expenses.toLocaleString()}k
+          Gastos {formatCurrency(expenses)}
         </span>
       </div>
     </div>

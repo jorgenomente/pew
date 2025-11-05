@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { User, CheckCircle2, Circle, Edit2, Plus, Check } from 'lucide-react';
 import type { IncomeEntry } from '../context/BudgetContext';
+import { useBudget } from '../context/BudgetContext';
 import { DEFAULT_PERSONAS, type Persona } from '../types';
 
 interface IncomeCardProps {
@@ -33,12 +34,6 @@ const getPersonaColors = (hueValue: number) => {
   return { primary, soft, chip, secondary, chipText, hue };
 };
 
-const formatCurrency = (value: number) =>
-  value.toLocaleString('es-AR', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: value % 1 === 0 ? 0 : 2,
-  });
-
 export function IncomeCard({
   persona,
   entries,
@@ -50,6 +45,7 @@ export function IncomeCard({
   onAddPersonaIncome,
   personaHue,
 }: IncomeCardProps) {
+  const { formatCurrency } = useBudget();
   const personaLabel = persona?.trim() || DEFAULT_PERSONAS[0];
   const normalizedBaseHue = normalizeHue(
     personaHue ?? (26 + index * 28),
@@ -249,7 +245,7 @@ export function IncomeCard({
             className="text-lg font-semibold"
             style={{ color: primary, letterSpacing: '-0.01em' }}
           >
-            ${formatCurrency(totalAmount)}
+            {formatCurrency(totalAmount)}
           </div>
           <span className="text-xs opacity-60" style={{ color: '#597370' }}>
             Total mensual estimado
@@ -257,7 +253,7 @@ export function IncomeCard({
         </div>
         <div className="text-right">
           <div className="text-xs font-semibold" style={{ color: secondary }}>
-            Recibido: ${formatCurrency(totalRecibido)}
+            Recibido: {formatCurrency(totalRecibido)}
           </div>
           <div className="text-[11px] opacity-60" style={{ color: '#597370' }}>
             {totalAmount === 0
@@ -301,7 +297,7 @@ export function IncomeCard({
             <div className="flex items-center gap-4">
               <div className="text-right">
                 <div className="text-sm font-semibold" style={{ color: primary }}>
-                  ${formatCurrency(entry.monto)}
+                  {formatCurrency(entry.monto)}
                 </div>
                 <span className="text-[11px]" style={{ color: chipText, opacity: 0.72 }}>
                   {entry.porcentaje.toLocaleString(undefined, {

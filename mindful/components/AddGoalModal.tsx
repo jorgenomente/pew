@@ -1,7 +1,8 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Target, DollarSign, Calendar, Flag } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { GoalFormData, GoalPriority } from '../types';
+import { useBudget } from '../context/BudgetContext';
 
 interface AddGoalModalProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface AddGoalModalProps {
 }
 
 export function AddGoalModal({ isOpen, onClose, onAdd }: AddGoalModalProps) {
+  const { currencyConfig } = useBudget();
   const [formData, setFormData] = useState<GoalFormData>({
     nombre: '',
     montoObjetivo: '',
@@ -17,6 +19,13 @@ export function AddGoalModal({ isOpen, onClose, onAdd }: AddGoalModalProps) {
     fecha: '',
     prioridad: 'media',
   });
+
+  const amountPlaceholder = useMemo(() => {
+    if (currencyConfig.fractionDigits <= 0) {
+      return '0';
+    }
+    return `0${currencyConfig.decimalSeparator}${'0'.repeat(currencyConfig.fractionDigits)}`;
+  }, [currencyConfig]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,7 +119,7 @@ export function AddGoalModal({ isOpen, onClose, onAdd }: AddGoalModalProps) {
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 text-sm opacity-70">
                     <DollarSign className="w-4 h-4" />
-                    Monto objetivo (ARS)
+                    {`Monto objetivo (${currencyConfig.code})`}
                   </label>
                   <motion.input
                     whileFocus={{
@@ -119,7 +128,7 @@ export function AddGoalModal({ isOpen, onClose, onAdd }: AddGoalModalProps) {
                     type="number"
                     value={formData.montoObjetivo}
                     onChange={(e) => setFormData({ ...formData, montoObjetivo: e.target.value })}
-                    placeholder="0.00"
+                    placeholder={amountPlaceholder}
                     className="w-full px-4 py-3 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/40 transition-all outline-none placeholder:opacity-40"
                     required
                   />
@@ -129,7 +138,7 @@ export function AddGoalModal({ isOpen, onClose, onAdd }: AddGoalModalProps) {
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 text-sm opacity-70">
                     <DollarSign className="w-4 h-4" />
-                    Monto actual (ARS)
+                    {`Monto actual (${currencyConfig.code})`}
                   </label>
                   <motion.input
                     whileFocus={{
@@ -138,7 +147,7 @@ export function AddGoalModal({ isOpen, onClose, onAdd }: AddGoalModalProps) {
                     type="number"
                     value={formData.montoActual}
                     onChange={(e) => setFormData({ ...formData, montoActual: e.target.value })}
-                    placeholder="0.00"
+                    placeholder={amountPlaceholder}
                     className="w-full px-4 py-3 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/40 transition-all outline-none placeholder:opacity-40"
                   />
                 </div>

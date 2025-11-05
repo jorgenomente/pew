@@ -9,7 +9,14 @@ interface CasitaBudgetProps {
 }
 
 export function CasitaBudget({ onEdit }: CasitaBudgetProps) {
-  const { expenses, budgetName, setBudgetName, updateExpenseName, toggleExpensePaid } = useBudget();
+  const {
+    expenses,
+    budgetName,
+    setBudgetName,
+    updateExpenseName,
+    toggleExpensePaid,
+    formatCurrency,
+  } = useBudget();
   
   // Map expenses to include icons
   const items = expenses.map(expense => ({
@@ -49,15 +56,15 @@ export function CasitaBudget({ onEdit }: CasitaBudgetProps) {
         <div className="grid grid-cols-3 gap-3">
           <div className="text-center p-4 rounded-2xl bg-white/30">
             <div className="text-xs opacity-60 mb-2" style={{ color: '#597370' }}>Estimado</div>
-            <div style={{ fontSize: '16px', fontWeight: 600 }}>${totalEstimado.toLocaleString()}</div>
+            <div style={{ fontSize: '16px', fontWeight: 600 }}>{formatCurrency(totalEstimado)}</div>
           </div>
           <div className="text-center p-4 rounded-2xl bg-[#7ED4C1]/20">
             <div className="text-xs opacity-60 mb-2" style={{ color: '#597370' }}>Pagado</div>
-            <div style={{ fontSize: '16px', fontWeight: 600 }}>${totalPagado.toLocaleString()}</div>
+            <div style={{ fontSize: '16px', fontWeight: 600 }}>{formatCurrency(totalPagado)}</div>
           </div>
           <div className="text-center p-4 rounded-2xl bg-[#C78C60]/20">
             <div className="text-xs opacity-60 mb-2" style={{ color: '#597370' }}>Pendiente</div>
-            <div style={{ fontSize: '16px', fontWeight: 600 }}>${totalPendiente.toLocaleString()}</div>
+            <div style={{ fontSize: '16px', fontWeight: 600 }}>{formatCurrency(totalPendiente)}</div>
           </div>
         </div>
       </motion.div>
@@ -159,18 +166,18 @@ export function CasitaBudget({ onEdit }: CasitaBudgetProps) {
                         placeholder="Categoría"
                       />
                       <div className="text-xs opacity-60 mt-1" style={{ color: '#597370' }}>
-                        ${item.montoEstimado.toLocaleString()} estimado
+                        {formatCurrency(item.montoEstimado)} estimado
                       </div>
                     </div>
                   </div>
                   
                   <div className="text-right flex-shrink-0">
                     <div className="mb-1" style={{ fontSize: '16px', fontWeight: 600, color: '#7ED4C1' }}>
-                      ${item.pagado.toLocaleString()}
+                      {formatCurrency(item.pagado)}
                     </div>
                     {pendiente > 0 && (
                       <div className="text-xs opacity-60 whitespace-nowrap" style={{ color: '#597370' }}>
-                        ${pendiente.toLocaleString()} restante
+                        {formatCurrency(pendiente)} restante
                       </div>
                     )}
                   </div>

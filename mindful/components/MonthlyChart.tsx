@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { Users, Waves } from 'lucide-react';
+import { useBudget } from '../context/BudgetContext';
 
 const SEGMENT_COLORS = ['#C78C60', '#7ED4C1', '#0F3C3B', '#FFC857'];
 const CIRCUMFERENCE = 2 * Math.PI * 70;
@@ -14,6 +15,7 @@ interface MonthlyChartProps {
 }
 
 export function MonthlyChart({ personaTotals }: MonthlyChartProps) {
+  const { formatCurrency } = useBudget();
   const relevantTotals = personaTotals.filter((item) => item.total > 0);
   const totalAmount = relevantTotals.reduce((sum, item) => sum + item.total, 0);
 
@@ -87,7 +89,7 @@ export function MonthlyChart({ personaTotals }: MonthlyChartProps) {
               Total
             </div>
             <div style={{ fontSize: '24px', fontWeight: 700, letterSpacing: '-0.01em' }}>
-              ${totalAmount.toLocaleString()}
+              {formatCurrency(totalAmount)}
             </div>
           </motion.div>
         </div>
@@ -108,7 +110,7 @@ export function MonthlyChart({ personaTotals }: MonthlyChartProps) {
             </div>
             <div className="flex items-baseline gap-2">
               <span style={{ fontSize: '18px', fontWeight: 600 }}>
-                ${segment.total.toLocaleString()}
+                {formatCurrency(segment.total)}
               </span>
               <span className="text-xs opacity-60" style={{ color: '#597370' }}>
                 {Math.round(segment.percentage)}%

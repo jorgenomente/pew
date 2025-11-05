@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import type { IconComponent } from '../types';
+import { useBudget } from '../context/BudgetContext';
 
 interface Goal {
   id: string;
@@ -10,6 +11,7 @@ interface Goal {
 }
 
 export function GoalRipple() {
+  const { formatCurrency } = useBudget();
   const goals: Goal[] = [];
 
   return (
@@ -59,7 +61,7 @@ export function GoalRipple() {
                   <div>
                     <div>{goal.name}</div>
                     <div className="text-xs opacity-60">
-                      ${goal.current.toLocaleString()} / ${goal.target.toLocaleString()}
+                      {formatCurrency(goal.current)} / {formatCurrency(goal.target)}
                     </div>
                   </div>
                 </div>
