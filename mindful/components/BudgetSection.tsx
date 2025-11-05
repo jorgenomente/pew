@@ -6,13 +6,15 @@ import { CasitaBudget } from './CasitaBudget';
 import { AddMovementModal } from './AddMovementModal';
 import { AddCasitaItemModal } from './AddCasitaItemModal';
 import { EditItemModal } from './EditItemModal';
+import { AddVariableExpenseModal } from './AddVariableExpenseModal';
 import { InlineEditableText } from './InlineEditableText';
 import { MonthSelector } from './MonthSelector';
 import { BudgetHistory } from './BudgetHistory';
 import { FixedExpensesSection } from './FixedExpensesSection';
+import { VariableExpensesSection } from './VariableExpensesSection';
 import { Plus, Download, Waves, RotateCcw } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { CasitaItemFormData, MovementFormData } from '../types';
+import type { CasitaItemFormData, MovementFormData, VariableExpenseFormData } from '../types';
 import { DEFAULT_PERSONAS } from '../types';
 import { useBudget, IncomeEntry, BudgetItem } from '../context/BudgetContext';
 
@@ -41,11 +43,15 @@ export function BudgetSection() {
     renamePersona,
     resetBudget,
     expenses,
+    variableExpenses,
     toggleExpensePaid,
+    addVariableExpense,
+    removeVariableExpense,
   } = useBudget();
   
   const [isMovementModalOpen, setIsMovementModalOpen] = useState(false);
   const [isCasitaModalOpen, setIsCasitaModalOpen] = useState(false);
+  const [isVariableExpenseModalOpen, setIsVariableExpenseModalOpen] = useState(false);
   const [editItem, setEditItem] = useState<IncomeEntry | BudgetItem | null>(null);
   const [editType, setEditType] = useState<'income' | 'casita'>('income');
   const [personaForModal, setPersonaForModal] = useState<string | null>(null);
@@ -95,8 +101,20 @@ export function BudgetSection() {
     setIsMovementModalOpen(true);
   };
 
+  const openVariableExpenseModal = () => {
+    setIsVariableExpenseModalOpen(true);
+  };
+
   const handleAddMovement = (movement: MovementFormData) => {
     addMovement(movement);
+  };
+
+  const handleAddVariableExpense = (expense: VariableExpenseFormData) => {
+    addVariableExpense(expense);
+  };
+
+  const handleRemoveVariableExpense = (id: string) => {
+    removeVariableExpense(id);
   };
 
   const handleAddCasitaItem = (item: CasitaItemFormData) => {
@@ -326,6 +344,13 @@ export function BudgetSection() {
               onTogglePaid={toggleExpensePaid}
             />
 
+            <VariableExpensesSection
+              expenses={variableExpenses}
+              monthLabel={meses[selectedMonth]}
+              onAdd={openVariableExpenseModal}
+              onRemove={handleRemoveVariableExpense}
+            />
+
             {/* Resumen mensual */}
             <motion.section
               initial={{ opacity: 0, y: 20 }}
@@ -412,6 +437,11 @@ export function BudgetSection() {
         defaultTipo={movementModalMode === 'expense' ? 'expense' : 'income'}
         incomeOnly={movementModalMode === 'income'}
         expenseOnly={movementModalMode === 'expense'}
+      />
+      <AddVariableExpenseModal
+        isOpen={isVariableExpenseModalOpen}
+        onClose={() => setIsVariableExpenseModalOpen(false)}
+        onAdd={handleAddVariableExpense}
       />
       <AddCasitaItemModal
         isOpen={isCasitaModalOpen}

@@ -12,8 +12,9 @@ import { AddGoalModal } from "./components/AddGoalModal";
 import { AddMovementModal } from "./components/AddMovementModal";
 import { FloatingActionButton } from "./components/FloatingActionButton";
 import { ResponsiveWrapper } from "./components/ResponsiveWrapper";
+import { BudgetSharingDialog } from "./components/BudgetSharingDialog";
 import { BudgetProvider, useBudget } from "./context/BudgetContext";
-import { Bell, User, Plus } from "lucide-react";
+import { Bell, User, Plus, UserPlus } from "lucide-react";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -26,6 +27,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import type { GoalFormData, MovementFormData } from "./types";
 
 const mockTransactions: Transaction[] = [];
@@ -36,7 +38,15 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState("home");
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [isMovementModalOpen, setIsMovementModalOpen] = useState(false);
-  const { getTotalIncome, getTotalExpenses } = useBudget();
+  const {
+    getTotalIncome,
+    getTotalExpenses,
+    incomingInvites,
+    acceptInvite,
+    isBudgetAdmin,
+  } = useBudget();
+  const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+  const [acceptingInviteId, setAcceptingInviteId] = useState<string | null>(null);
   const [isSigningOut, startSignOut] = useTransition();
 
   const handleAddGoal = (goal: GoalFormData) => {
@@ -62,6 +72,27 @@ function AppContent() {
       router.replace("/auth");
       router.refresh();
     });
+  };
+
+  const handleAcceptInvite = async (invite: (typeof incomingInvites)[number]) => {
+    if (!invite.token) {
+      toast.error("Esta invitación ya no está disponible.");
+      return;
+    }
+
+    setAcceptingInviteId(invite.id);
+    try {
+      await acceptInvite(invite.token);
+      toast.success("Te sumaste al presupuesto ✨", {
+        description: "Ya podés explorarlo desde la barra inferior.",
+      });
+    } catch (error) {
+      const description =
+        error instanceof Error ? error.message : "Reintenta en unos instantes.";
+      toast.error("No pudimos aceptar la invitación", { description });
+    } finally {
+      setAcceptingInviteId(null);
+    }
   };
 
   const accountName =
@@ -130,6 +161,20 @@ function AppContent() {
           
           <div className="flex items-center gap-2 sm:gap-3">
             <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setIsShareDialogOpen(true)}
+              className="relative flex h-9 w-9 items-center justify-center rounded-full border border-white/30 bg-gradient-to-br from-[#7ED4C1]/40 to-[#C78C60]/40 text-foreground shadow-sm sm:h-auto sm:w-auto sm:px-4 sm:py-2 sm:rounded-full sm:text-sm sm:font-medium sm:gap-2"
+            >
+              <UserPlus className="h-4 w-4" />
+              <span className="hidden sm:inline">Compartir</span>
+              {incomingInvites.length > 0 ? (
+                <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[#C78C60] px-1 text-[10px] font-semibold text-white">
+                  {incomingInvites.length}
+                </span>
+              ) : null}
+            </motion.button>
+            <motion.button
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
               className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/40 backdrop-blur-sm border border-white/30 flex items-center justify-center"
@@ -158,6 +203,15 @@ function AppContent() {
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
+                    setIsShareDialogOpen(true);
+                  }}
+                >
+                  {isBudgetAdmin ? "Compartir presupuesto" : "Ver equipo"}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
                     handleSignOut();
                   }}
                   disabled={isSigningOut}
@@ -168,6 +222,41 @@ function AppContent() {
             </DropdownMenu>
           </div>
         </motion.header>
+
+        {incomingInvites.length > 0 ? (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+            className="mb-6 space-y-3"
+          >
+            {incomingInvites.map((invite) => (
+              <div
+                key={invite.id}
+                className="flex flex-col gap-3 rounded-2xl border border-white/50 bg-white/80 px-4 py-4 backdrop-blur md:flex-row md:items-center md:justify-between"
+              >
+                <div>
+                  <p className="text-sm font-medium">
+                    Te invitaron a{" "}
+                    <span className="italic">
+                      {invite.budgetName ?? "un presupuesto compartido"}
+                    </span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Aceptá para administrarlo junto a tu equipo.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => handleAcceptInvite(invite)}
+                  disabled={acceptingInviteId === invite.id || !invite.token}
+                >
+                  {acceptingInviteId === invite.id ? "Sumándote..." : "Aceptar invitación"}
+                </Button>
+              </div>
+            ))}
+          </motion.div>
+        ) : null}
 
         {/* Content based on active tab with fade animation */}
         <AnimatePresence mode="wait">
@@ -338,6 +427,7 @@ function AppContent() {
         onClose={() => setIsMovementModalOpen(false)}
         onAdd={handleAddMovement}
       />
+      <BudgetSharingDialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen} />
     </div>
   );
 }

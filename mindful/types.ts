@@ -15,6 +15,14 @@ export interface MovementFormData {
   tipo: MovementType;
 }
 
+export interface VariableExpenseFormData {
+  concepto: string;
+  categoria: string;
+  fecha: string;
+  monto: string;
+  nota: string;
+}
+
 export type GoalPriority = "alta" | "media" | "baja";
 
 export interface GoalFormData {

@@ -6,13 +6,21 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useCallback,
   useState,
   type ReactNode,
 } from 'react';
-import type { IconComponent, MovementFormData, Persona } from '../types';
+import { useSupabase } from '@/components/supabase-provider';
+import type { IconComponent, MovementFormData, Persona, VariableExpenseFormData } from '../types';
 import { DEFAULT_PERSONAS } from '../types';
 
 const DEFAULT_PERSONA_HUES = [210, 20, 150, 310, 115, 45];
+const STORAGE_BASE_KEY = 'mindful-budget-state-v1';
+const ACTIVE_BUDGET_KEY_BASE = 'mindful-active-budget';
+const REMOTE_SAVE_DEBOUNCE = 750;
+
+const storageKeyForBudget = (budgetId: string | null) =>
+  budgetId ? `${STORAGE_BASE_KEY}:${budgetId}` : STORAGE_BASE_KEY;
 
 export interface IncomeEntry {
   id: string;
@@ -35,14 +43,76 @@ export interface BudgetItem {
   nota?: string;
 }
 
+export interface VariableExpense {
+  id: string;
+  concepto: string;
+  monto: number;
+  categoria?: string;
+  fecha?: string;
+  nota?: string;
+}
+
+type BudgetRole = 'owner' | 'editor';
+type InviteStatus = 'pending' | 'accepted' | 'revoked';
+
+interface BudgetSummary {
+  id: string;
+  name: string | null;
+  role: BudgetRole;
+  ownerId: string;
+}
+
+type BudgetRelation = {
+  id: string;
+  name: string | null;
+  owner_id: string;
+};
+
+type MembershipWithBudget = {
+  budget_id: string;
+  role: BudgetRole | string | null;
+  budgets?: BudgetRelation | BudgetRelation[];
+};
+
+interface BudgetMemberSummary {
+  userId: string;
+  email: string | null;
+  role: BudgetRole;
+  createdAt: string;
+  isCurrentUser: boolean;
+}
+
+interface BudgetInviteSummary {
+  id: string;
+  budgetId: string;
+  budgetName: string | null;
+  email: string;
+  role: BudgetRole;
+  status: InviteStatus;
+  token: string | null;
+  invitedBy: string;
+  createdAt: string;
+  acceptedAt: string | null;
+}
+
 interface BudgetContextType {
   selectedMonth: number;
   selectedYear: number;
+  budgets: BudgetSummary[];
+  activeBudgetId: string | null;
+  activeBudgetRole: BudgetRole | null;
+  members: BudgetMemberSummary[];
+  outgoingInvites: BudgetInviteSummary[];
+  incomingInvites: BudgetInviteSummary[];
+  isLoadingBudgets: boolean;
+  isBudgetAdmin: boolean;
   incomes: IncomeEntry[];
   expenses: BudgetItem[];
+  variableExpenses: VariableExpense[];
   budgetName: string;
   personaOptions: Persona[];
   personas: Persona[];
+  setActiveBudget: (budgetId: string) => void;
   setSelectedMonth: (month: number) => void;
   setSelectedYear: (year: number) => void;
   setBudgetName: (name: string) => void;
@@ -52,6 +122,10 @@ interface BudgetContextType {
   getPersonaTotals: () => { persona: Persona; total: number }[];
   toggleRecibido: (id: string) => void;
   addMovement: (movement: MovementFormData) => void;
+  inviteToBudget: (email: string) => Promise<BudgetInviteSummary | null>;
+  revokeInvite: (inviteId: string) => Promise<void>;
+  acceptInvite: (token: string) => Promise<string | null>;
+  refreshMembership: () => Promise<void>;
   renamePersona: (oldName: Persona, newName: Persona) => void;
   resetBudget: () => void;
   updatePersonName: (id: string, newName: Persona) => void;
@@ -59,19 +133,22 @@ interface BudgetContextType {
   updateBudgetItem: (item: BudgetItem & { nota?: string }) => void;
   removeIncome: (id: string) => void;
   removeBudgetItem: (id: string) => void;
+  removeVariableExpense: (id: string) => void;
   personaThemes: Record<string, number>;
   setPersonaTheme: (persona: Persona, hue: number) => void;
   updateExpenseName: (id: string, newName: string) => void;
   toggleExpensePaid: (id: string) => void;
   getMonthName: () => string;
+  expenseCategories: string[];
+  registerExpenseCategory: (categoria: string) => void;
+  addVariableExpense: (expense: VariableExpenseFormData) => void;
+  updateVariableExpense: (expense: VariableExpense) => void;
 }
 
 const meses = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
 ];
-
-const STORAGE_KEY = 'mindful-budget-state-v1';
 
 const getMonthKey = (year: number, month: number) =>
   `${year}-${String(month + 1).padStart(2, '0')}`;
@@ -101,6 +178,33 @@ const uniquePersonaList = (names: Persona[]) => {
       return;
     }
     seen.add(trimmed);
+    result.push(trimmed);
+  });
+
+  return result;
+};
+
+const normalizeCategoryName = (name: string) => name.trim();
+
+const uniqueCategoryList = (names: string[]) => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  names.forEach((name) => {
+    if (typeof name !== 'string') {
+      return;
+    }
+
+    const trimmed = normalizeCategoryName(name);
+    if (!trimmed) {
+      return;
+    }
+
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
     result.push(trimmed);
   });
 
@@ -155,6 +259,216 @@ const formatFecha = (fecha: string) => {
   });
 };
 
+interface BudgetStateSnapshot {
+  selectedMonth: number;
+  selectedYear: number;
+  budgetName: string;
+  personas: Persona[];
+  incomesByMonth: Record<string, IncomeEntry[]>;
+  expenses: BudgetItem[];
+  variableExpensesByMonth: Record<string, VariableExpense[]>;
+  templateIncomes: IncomeEntry[];
+  personaThemes: Record<string, number>;
+  expenseCategories: string[];
+}
+
+type RemoteSyncStatus = 'idle' | 'loading' | 'ready';
+
+const parseIncomeEntry = (entry: unknown): IncomeEntry => {
+  const record = isRecord(entry) ? entry : {};
+  const monto = Number(record.monto);
+  const personaRaw = record.persona;
+  const persona = typeof personaRaw === 'string' && personaRaw.trim().length > 0
+    ? personaRaw
+    : DEFAULT_PERSONAS[0];
+  const fechaRaw = record.fecha;
+  const fuenteRaw = record.fuente;
+  const idRaw = record.id;
+  const recibidoRaw = record.recibido;
+
+  return {
+    id: typeof idRaw === 'string' && idRaw ? idRaw : createId(),
+    fecha: typeof fechaRaw === 'string' ? fechaRaw : '',
+    fuente: typeof fuenteRaw === 'string' && fuenteRaw ? fuenteRaw : 'Ingreso',
+    persona,
+    monto: Number.isFinite(monto) ? monto : 0,
+    porcentaje: 0,
+    recibido: Boolean(recibidoRaw),
+  };
+};
+
+const parseBudgetItem = (item: unknown): BudgetItem => {
+  const record = isRecord(item) ? item : {};
+  const montoEstimado = Number(record.montoEstimado);
+  const pagado = Number(record.pagado);
+  const idRaw = record.id;
+  const conceptoRaw = record.concepto;
+  const iconRaw = record.icon;
+  const categoriaRaw = record.categoria;
+  const notaRaw = record.nota;
+  const isPagadoRaw = record.isPagado;
+
+  return {
+    id: typeof idRaw === 'string' && idRaw ? idRaw : createId(),
+    concepto: typeof conceptoRaw === 'string' && conceptoRaw
+      ? conceptoRaw
+      : 'Gasto',
+    montoEstimado: Number.isFinite(montoEstimado) ? montoEstimado : 0,
+    pagado: Number.isFinite(pagado) ? pagado : 0,
+    isPagado: Boolean(isPagadoRaw),
+    icon: iconRaw as IconComponent | undefined,
+    categoria: typeof categoriaRaw === 'string' ? categoriaRaw : undefined,
+    nota: typeof notaRaw === 'string' ? notaRaw : undefined,
+  };
+};
+
+const parseVariableExpense = (item: unknown): VariableExpense => {
+  const record = isRecord(item) ? item : {};
+  const monto = Number(record.monto);
+  const idRaw = record.id;
+  const conceptoRaw = record.concepto;
+  const categoriaRaw = record.categoria;
+  const fechaRaw = record.fecha;
+  const notaRaw = record.nota;
+
+  return {
+    id: typeof idRaw === 'string' && idRaw ? idRaw : createId(),
+    concepto: typeof conceptoRaw === 'string' && conceptoRaw ? conceptoRaw : 'Gasto',
+    monto: Number.isFinite(monto) ? monto : 0,
+    categoria: typeof categoriaRaw === 'string' ? categoriaRaw : undefined,
+    fecha: typeof fechaRaw === 'string' ? fechaRaw : undefined,
+    nota: typeof notaRaw === 'string' ? notaRaw : undefined,
+  };
+};
+
+const sanitizeBudgetState = (raw: unknown): BudgetStateSnapshot | null => {
+  if (!isRecord(raw)) {
+    return null;
+  }
+
+  const now = new Date();
+  const selectedMonth =
+    typeof raw.selectedMonth === 'number' && raw.selectedMonth >= 0 && raw.selectedMonth <= 11
+      ? raw.selectedMonth
+      : now.getMonth();
+
+  const selectedYear =
+    typeof raw.selectedYear === 'number' && raw.selectedYear > 1900
+      ? raw.selectedYear
+      : now.getFullYear();
+
+  const budgetName = typeof raw.budgetName === 'string' ? raw.budgetName : '';
+
+  const personasRaw = Array.isArray(raw.personas) ? (raw.personas as Persona[]) : [];
+  const basePersonas = uniquePersonaList([...personasRaw]);
+
+  const templateRaw = Array.isArray(raw.templateIncomes) ? raw.templateIncomes : [];
+  const templateIncomes = recalculateIncomePercentages(
+    templateRaw.map(parseIncomeEntry),
+  ).map(cloneForTemplate);
+
+  const incomesByMonth = Object.entries(raw.incomesByMonth ?? {}).reduce<Record<string, IncomeEntry[]>>(
+    (acc, [key, value]) => {
+      if (!Array.isArray(value)) {
+        return acc;
+      }
+      const normalized = recalculateIncomePercentages(value.map(parseIncomeEntry));
+      acc[key] = normalized;
+      return acc;
+    },
+    {},
+  );
+
+  const expenses = Array.isArray(raw.expenses)
+    ? (raw.expenses as unknown[]).map(parseBudgetItem)
+    : [];
+
+  const variableExpensesByMonth = isRecord(raw.variableExpensesByMonth)
+    ? Object.entries(raw.variableExpensesByMonth).reduce<Record<string, VariableExpense[]>>(
+        (acc, [key, value]) => {
+          if (!Array.isArray(value)) {
+            return acc;
+          }
+          acc[key] = (value as unknown[]).map(parseVariableExpense);
+          return acc;
+        },
+        {},
+      )
+    : {};
+
+  const storedCategoriesRaw = Array.isArray(raw.expenseCategories)
+    ? (raw.expenseCategories as string[])
+    : [];
+  const storedCategories = uniqueCategoryList(storedCategoriesRaw);
+  const derivedFromExpenses = uniqueCategoryList(
+    expenses
+      .map((expense) => expense.categoria ?? '')
+      .filter((categoria) => typeof categoria === 'string'),
+  );
+  const derivedFromVariableExpenses = uniqueCategoryList(
+    Object.values(variableExpensesByMonth)
+      .flatMap((list) => list.map((expense) => expense.categoria ?? ''))
+      .filter((categoria) => typeof categoria === 'string'),
+  );
+  const expenseCategories = uniqueCategoryList([
+    ...storedCategories,
+    ...derivedFromExpenses,
+    ...derivedFromVariableExpenses,
+  ]);
+
+  const incomePersonaNames: Persona[] = [];
+  Object.values(incomesByMonth).forEach((monthIncomes) => {
+    monthIncomes.forEach((income) => {
+      incomePersonaNames.push(income.persona);
+    });
+  });
+  const personas = uniquePersonaList([...basePersonas, ...incomePersonaNames]);
+
+  const themesRaw = isRecord(raw.personaThemes) ? raw.personaThemes : {};
+  const parsedThemes = Object.entries(themesRaw).reduce<Record<string, number>>(
+    (acc, [key, value]) => {
+      if (typeof key !== 'string') {
+        return acc;
+      }
+      const trimmed = normalizePersonaName(key);
+      const numericValue = Number(value);
+      if (!trimmed || Number.isNaN(numericValue)) {
+        return acc;
+      }
+      acc[trimmed] = normalizeHue(numericValue);
+      return acc;
+    },
+    {},
+  );
+
+  const personaThemes = personas.reduce<Record<string, number>>((acc, personaName, index) => {
+    const key = normalizePersonaName(personaName);
+    if (!key) {
+      return acc;
+    }
+    if (parsedThemes[key] !== undefined) {
+      acc[key] = parsedThemes[key];
+      return acc;
+    }
+    const defaultHue = DEFAULT_PERSONA_HUES[index % DEFAULT_PERSONA_HUES.length];
+    acc[key] = normalizeHue(defaultHue);
+    return acc;
+  }, { ...parsedThemes });
+
+  return {
+    selectedMonth,
+    selectedYear,
+    budgetName,
+    personas,
+    incomesByMonth,
+    expenses,
+    variableExpensesByMonth,
+    templateIncomes,
+    personaThemes,
+    expenseCategories,
+  };
+};
+
 const syncMonthsWithTemplate = (
   months: Record<string, IncomeEntry[]>,
   template: IncomeEntry[],
@@ -185,6 +499,16 @@ const BudgetContext = createContext<BudgetContextType | undefined>(undefined);
 
 export function BudgetProvider({ children }: { children: ReactNode }) {
   const today = new Date();
+  const { supabase, session } = useSupabase();
+  const userId = session?.user?.id ?? null;
+  const userEmail = (session?.user?.email as string | undefined) ?? null;
+  const [budgets, setBudgets] = useState<BudgetSummary[]>([]);
+  const [isLoadingBudgets, setIsLoadingBudgets] = useState(true);
+  const [activeBudgetId, setActiveBudgetIdState] = useState<string | null>(null);
+  const [activeBudgetRole, setActiveBudgetRole] = useState<BudgetRole | null>(null);
+  const [members, setMembers] = useState<BudgetMemberSummary[]>([]);
+  const [outgoingInvites, setOutgoingInvites] = useState<BudgetInviteSummary[]>([]);
+  const [incomingInvites, setIncomingInvites] = useState<BudgetInviteSummary[]>([]);
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth());
   const [selectedYear, setSelectedYear] = useState(today.getFullYear());
   const [budgetName, setBudgetName] = useState('');
@@ -192,187 +516,540 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
   const [personaThemes, setPersonaThemes] = useState<Record<string, number>>({});
   const [incomesByMonth, setIncomesByMonth] = useState<Record<string, IncomeEntry[]>>({});
   const [expenses, setExpenses] = useState<BudgetItem[]>([]);
+  const [expenseCategories, setExpenseCategories] = useState<string[]>([]);
+  const [variableExpensesByMonth, setVariableExpensesByMonth] = useState<Record<string, VariableExpense[]>>({});
   const [templateIncomes, setTemplateIncomes] = useState<IncomeEntry[]>([]);
   const templateIncomesRef = useRef<IncomeEntry[]>([]);
   const [hasHydrated, setHasHydrated] = useState(false);
+  const [remoteSyncStatus, setRemoteSyncStatus] = useState<RemoteSyncStatus>('idle');
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const budgetNameSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hydratedBudgetRef = useRef<string | null>(null);
+  const lastSyncedSnapshotRef = useRef<string | null>(null);
+  const activeBudgetStorageKey = useMemo(() => {
+    if (!userId) {
+      return null;
+    }
+    return `${ACTIVE_BUDGET_KEY_BASE}-${userId}`;
+  }, [userId]);
+  const isBudgetAdmin = activeBudgetRole === 'owner';
 
-  const syncTemplate = (entries: IncomeEntry[]) => {
+  const syncTemplate = useCallback((entries: IncomeEntry[]) => {
     templateIncomesRef.current = entries;
     setTemplateIncomes(entries);
-  };
+  }, []);
+
+  const initializeEmptyState = useCallback(() => {
+    const now = new Date();
+    setSelectedMonth(now.getMonth());
+    setSelectedYear(now.getFullYear());
+    setBudgetName('');
+    setPersonas([]);
+    setPersonaThemes({});
+    syncTemplate([]);
+    setIncomesByMonth({});
+    setExpenses([]);
+    setVariableExpensesByMonth({});
+    setExpenseCategories([]);
+  }, [syncTemplate]);
 
   const currentMonthKey = getMonthKey(selectedYear, selectedMonth);
   const incomes = incomesByMonth[currentMonthKey] ?? [];
+  const variableExpenses = variableExpensesByMonth[currentMonthKey] ?? [];
 
-  useEffect(() => {
-    if (typeof window === 'undefined') {
+  const applyPersistedState = useCallback((snapshot: BudgetStateSnapshot) => {
+    setSelectedMonth(snapshot.selectedMonth);
+    setSelectedYear(snapshot.selectedYear);
+    setBudgetName(snapshot.budgetName);
+    setPersonas(snapshot.personas);
+    setPersonaThemes(snapshot.personaThemes);
+    syncTemplate(snapshot.templateIncomes);
+    setIncomesByMonth(snapshot.incomesByMonth);
+    setExpenses(snapshot.expenses);
+    setVariableExpensesByMonth(snapshot.variableExpensesByMonth);
+    setExpenseCategories(snapshot.expenseCategories);
+  }, [syncTemplate]);
+
+  const createSnapshot = useCallback((): BudgetStateSnapshot => {
+    const incomesSnapshot = Object.entries(incomesByMonth).reduce<Record<string, IncomeEntry[]>>(
+      (acc, [key, value]) => {
+        acc[key] = value.map((income) => ({ ...income }));
+        return acc;
+      },
+      {},
+    );
+
+    const variableSnapshot = Object.entries(variableExpensesByMonth).reduce<Record<string, VariableExpense[]>>(
+      (acc, [key, value]) => {
+        acc[key] = value.map((expense) => ({ ...expense }));
+        return acc;
+      },
+      {},
+    );
+
+    return {
+      selectedMonth,
+      selectedYear,
+      budgetName,
+      personas: [...personas],
+      incomesByMonth: incomesSnapshot,
+      expenses: expenses.map((expense) => ({ ...expense })),
+      variableExpensesByMonth: variableSnapshot,
+      templateIncomes: templateIncomes.map((income) => ({ ...income })),
+      personaThemes: { ...personaThemes },
+      expenseCategories: [...expenseCategories],
+    };
+  }, [selectedMonth, selectedYear, budgetName, personas, incomesByMonth, expenses, variableExpensesByMonth, templateIncomes, personaThemes, expenseCategories]);
+
+  const fetchBudgets = useCallback(async (preferredActiveId?: string) => {
+    if (!userId) {
+      setBudgets([]);
+      setActiveBudgetIdState(null);
+      setActiveBudgetRole(null);
+      setIsLoadingBudgets(false);
       return;
     }
 
-    const parseIncomeEntry = (entry: unknown): IncomeEntry => {
-      const record = isRecord(entry) ? entry : {};
-      const monto = Number(record.monto);
-      const personaRaw = record.persona;
-      const persona = typeof personaRaw === 'string' && personaRaw.trim().length > 0
-        ? personaRaw
-        : DEFAULT_PERSONAS[0];
-      const fechaRaw = record.fecha;
-      const fuenteRaw = record.fuente;
-      const idRaw = record.id;
-      const recibidoRaw = record.recibido;
-      
-      return {
-        id: typeof idRaw === 'string' && idRaw ? idRaw : createId(),
-        fecha: typeof fechaRaw === 'string' ? fechaRaw : '',
-        fuente: typeof fuenteRaw === 'string' && fuenteRaw ? fuenteRaw : 'Ingreso',
-        persona,
-        monto: Number.isFinite(monto) ? monto : 0,
-        porcentaje: 0,
-        recibido: Boolean(recibidoRaw),
-      };
-    };
+    setIsLoadingBudgets(true);
 
-    const parseBudgetItem = (item: unknown): BudgetItem => {
-      const record = isRecord(item) ? item : {};
-      const montoEstimado = Number(record.montoEstimado);
-      const pagado = Number(record.pagado);
-      const idRaw = record.id;
-      const conceptoRaw = record.concepto;
-      const iconRaw = record.icon;
-      const categoriaRaw = record.categoria;
-      const notaRaw = record.nota;
-      const isPagadoRaw = record.isPagado;
+    const membershipQuery = supabase
+      .from('budget_members')
+      .select(`
+        budget_id,
+        role,
+        budgets!inner (
+          id,
+          name,
+          owner_id
+        )
+      `)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
 
+    const { data, error } = await membershipQuery;
+
+    if (error) {
+      console.error('No se pudieron cargar tus presupuestos compartidos:', error);
+      setIsLoadingBudgets(false);
+      return;
+    }
+
+    let memberships = data ?? [];
+
+    if (memberships.length === 0) {
+      const defaultBudgetName = 'Mi presupuesto mindful';
+      const { data: createdBudget, error: createBudgetError } = await supabase
+        .from('budgets')
+        .insert({ owner_id: userId, name: defaultBudgetName })
+        .select('id, owner_id')
+        .single();
+
+      if (createBudgetError) {
+        console.error('No se pudo crear el presupuesto inicial:', createBudgetError);
+        setIsLoadingBudgets(false);
+        return;
+      }
+
+      const { error: membershipError } = await supabase.from('budget_members').insert({
+        budget_id: createdBudget?.id,
+        user_id: userId,
+        email: userEmail,
+        role: 'owner',
+      });
+
+      if (membershipError) {
+        console.error('No se pudo asociar tu cuenta al presupuesto inicial:', membershipError);
+        setIsLoadingBudgets(false);
+        return;
+      }
+
+      const retry = await membershipQuery;
+      if (retry.error) {
+        console.error('No se pudieron cargar tus presupuestos compartidos:', retry.error);
+        setIsLoadingBudgets(false);
+        return;
+      }
+      memberships = retry.data ?? [];
+    }
+
+    const mappedBudgets: BudgetSummary[] = memberships.map((membershipRaw) => {
+      const membership = membershipRaw as MembershipWithBudget;
+      const relatedBudgets = membership.budgets;
+      const budgetData = Array.isArray(relatedBudgets) ? relatedBudgets[0] : relatedBudgets;
+      const resolvedRole: BudgetRole =
+        membership.role === 'owner' || membership.role === 'editor' ? membership.role : 'editor';
       return {
-        id: typeof idRaw === 'string' && idRaw ? idRaw : createId(),
-        concepto: typeof conceptoRaw === 'string' && conceptoRaw
-          ? conceptoRaw
-          : 'Gasto',
-        montoEstimado: Number.isFinite(montoEstimado) ? montoEstimado : 0,
-        pagado: Number.isFinite(pagado) ? pagado : 0,
-        isPagado: Boolean(isPagadoRaw),
-        icon: iconRaw as IconComponent | undefined,
-        categoria: typeof categoriaRaw === 'string' ? categoriaRaw : undefined,
-        nota: typeof notaRaw === 'string' ? notaRaw : undefined,
+        id: budgetData?.id ?? membership.budget_id,
+        name: budgetData?.name ?? null,
+        role: resolvedRole,
+        ownerId: budgetData?.owner_id ?? userId,
       };
+    });
+
+    setBudgets(mappedBudgets);
+
+    let resolvedActiveId = preferredActiveId ?? activeBudgetId;
+
+    if (resolvedActiveId && !mappedBudgets.some((budget) => budget.id === resolvedActiveId)) {
+      resolvedActiveId = null;
+    }
+
+    if (!resolvedActiveId && typeof window !== 'undefined' && activeBudgetStorageKey) {
+      const stored = window.localStorage.getItem(activeBudgetStorageKey);
+      if (stored && mappedBudgets.some((budget) => budget.id === stored)) {
+        resolvedActiveId = stored;
+      }
+    }
+
+    if (!resolvedActiveId) {
+      resolvedActiveId = mappedBudgets[0]?.id ?? null;
+    }
+
+    setActiveBudgetIdState(resolvedActiveId);
+    const resolvedRole = mappedBudgets.find((budget) => budget.id === resolvedActiveId)?.role ?? null;
+    setActiveBudgetRole(resolvedRole);
+
+    if (resolvedActiveId && activeBudgetStorageKey && typeof window !== 'undefined') {
+      window.localStorage.setItem(activeBudgetStorageKey, resolvedActiveId);
+    }
+
+    setIsLoadingBudgets(false);
+  }, [activeBudgetId, activeBudgetStorageKey, supabase, userEmail, userId]);
+
+  const setActiveBudget = useCallback(
+    (budgetId: string) => {
+      if (!budgetId || !budgets.some((budget) => budget.id === budgetId)) {
+        return;
+      }
+
+      setActiveBudgetIdState((prev) => (prev === budgetId ? prev : budgetId));
+
+      if (activeBudgetStorageKey && typeof window !== 'undefined') {
+        window.localStorage.setItem(activeBudgetStorageKey, budgetId);
+      }
+    },
+    [activeBudgetStorageKey, budgets],
+  );
+
+  const refreshBudgetMembers = useCallback(
+    async (budgetId: string) => {
+      const { data, error } = await supabase
+        .from('budget_members')
+        .select('user_id, email, role, created_at')
+        .eq('budget_id', budgetId)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('No se pudieron obtener los miembros del presupuesto:', error);
+        setMembers([]);
+        return;
+      }
+
+      const mapped: BudgetMemberSummary[] = (data ?? []).map((member) => ({
+        userId: member.user_id,
+        email: member.email,
+        role: (member.role as BudgetRole) ?? 'editor',
+        createdAt: member.created_at,
+        isCurrentUser: member.user_id === userId,
+      }));
+
+      setMembers(mapped);
+    },
+    [supabase, userId],
+  );
+
+  const refreshOutgoingInvites = useCallback(
+    async (budgetId: string) => {
+      const { data, error } = await supabase
+        .from('budget_invites')
+        .select('id, budget_id, budget_name, email, role, status, token, invited_by, created_at, accepted_at')
+        .eq('budget_id', budgetId)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        if (error.code !== '42501') {
+          console.error('No se pudieron obtener las invitaciones del presupuesto:', error);
+        }
+        setOutgoingInvites([]);
+        return;
+      }
+
+      const mapped: BudgetInviteSummary[] = (data ?? []).map((invite) => ({
+        id: invite.id,
+        budgetId: invite.budget_id,
+        budgetName: invite.budget_name,
+        email: invite.email,
+        role: (invite.role as BudgetRole) ?? 'editor',
+        status: (invite.status as InviteStatus) ?? 'pending',
+        token: invite.token,
+        invitedBy: invite.invited_by,
+        createdAt: invite.created_at,
+        acceptedAt: invite.accepted_at,
+      }));
+
+      setOutgoingInvites(mapped);
+    },
+    [supabase],
+  );
+
+  const refreshIncomingInvites = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('budget_invites')
+      .select('id, budget_id, budget_name, email, role, status, token, invited_by, created_at, accepted_at')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('No se pudieron obtener tus invitaciones pendientes:', error);
+      setIncomingInvites([]);
+      return;
+    }
+
+    const mapped: BudgetInviteSummary[] = (data ?? [])
+      .filter((invite) => !userEmail || invite.email?.toLowerCase() === userEmail.toLowerCase())
+      .map((invite) => ({
+        id: invite.id,
+        budgetId: invite.budget_id,
+        budgetName: invite.budget_name,
+        email: invite.email,
+        role: (invite.role as BudgetRole) ?? 'editor',
+        status: (invite.status as InviteStatus) ?? 'pending',
+        token: invite.token,
+        invitedBy: invite.invited_by,
+        createdAt: invite.created_at,
+        acceptedAt: invite.accepted_at,
+      }));
+
+    setIncomingInvites(mapped);
+  }, [supabase, userEmail]);
+
+  const refreshMembership = useCallback(async () => {
+    if (!activeBudgetId) {
+      setMembers([]);
+      setOutgoingInvites([]);
+      return;
+    }
+
+    await Promise.all([
+      refreshBudgetMembers(activeBudgetId),
+      activeBudgetRole === 'owner' ? refreshOutgoingInvites(activeBudgetId) : Promise.resolve(),
+    ]);
+
+    await refreshIncomingInvites();
+  }, [activeBudgetId, activeBudgetRole, refreshBudgetMembers, refreshOutgoingInvites, refreshIncomingInvites]);
+
+  useEffect(() => {
+    void fetchBudgets();
+  }, [fetchBudgets]);
+
+  useEffect(() => {
+    if (session?.user) {
+      void refreshIncomingInvites();
+    } else {
+      setIncomingInvites([]);
+    }
+  }, [refreshIncomingInvites, session]);
+
+  useEffect(() => {
+    if (!activeBudgetId || !hasHydrated) {
+      return;
+    }
+
+    setBudgets((prev) =>
+      prev.map((budget) =>
+        budget.id === activeBudgetId
+          ? {
+              ...budget,
+              name: budgetName || budget.name,
+            }
+          : budget,
+      ),
+    );
+  }, [activeBudgetId, budgetName, hasHydrated]);
+
+  useEffect(() => {
+    if (!activeBudgetId || !isBudgetAdmin || !hasHydrated) {
+      return;
+    }
+
+    if (budgetNameSaveTimeoutRef.current) {
+      clearTimeout(budgetNameSaveTimeoutRef.current);
+    }
+
+    const trimmedName = budgetName.trim();
+
+    budgetNameSaveTimeoutRef.current = setTimeout(() => {
+      budgetNameSaveTimeoutRef.current = null;
+      void supabase
+        .from('budgets')
+        .update({ name: trimmedName || null })
+        .eq('id', activeBudgetId);
+    }, 1200);
+
+    return () => {
+      if (budgetNameSaveTimeoutRef.current) {
+        clearTimeout(budgetNameSaveTimeoutRef.current);
+        budgetNameSaveTimeoutRef.current = null;
+      }
     };
+  }, [activeBudgetId, budgetName, hasHydrated, isBudgetAdmin, supabase]);
+
+  useEffect(() => {
+    if (!activeBudgetId) {
+      setMembers([]);
+      setOutgoingInvites([]);
+      return;
+    }
+    void refreshMembership();
+  }, [activeBudgetId, refreshMembership]);
+  useEffect(() => {
+    if (isLoadingBudgets) {
+      return;
+    }
+
+    if (!activeBudgetId) {
+      initializeEmptyState();
+      setHasHydrated(false);
+      hydratedBudgetRef.current = null;
+      lastSyncedSnapshotRef.current = null;
+      setRemoteSyncStatus('idle');
+      return;
+    }
+
+    initializeEmptyState();
+    setHasHydrated(false);
+    hydratedBudgetRef.current = activeBudgetId;
+    lastSyncedSnapshotRef.current = null;
+    setRemoteSyncStatus('idle');
+
+    if (typeof window === 'undefined') {
+      setHasHydrated(true);
+      return;
+    }
 
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
+      const raw = window.localStorage.getItem(storageKeyForBudget(activeBudgetId));
       if (!raw) {
         setHasHydrated(true);
         return;
       }
 
       const parsed = JSON.parse(raw);
+      const sanitized = sanitizeBudgetState(parsed);
 
-      if (typeof parsed?.selectedMonth === 'number' && parsed.selectedMonth >= 0 && parsed.selectedMonth <= 11) {
-        setSelectedMonth(parsed.selectedMonth);
+      if (sanitized) {
+        applyPersistedState(sanitized);
       }
-
-      if (typeof parsed?.selectedYear === 'number' && parsed.selectedYear > 1900) {
-        setSelectedYear(parsed.selectedYear);
-      }
-
-      if (typeof parsed?.budgetName === 'string') {
-        setBudgetName(parsed.budgetName);
-      }
-
-      const personasRaw = Array.isArray(parsed?.personas) ? parsed.personas : [];
-      const basePersonas = uniquePersonaList([...personasRaw]);
-
-      const templateRaw = Array.isArray(parsed?.templateIncomes) ? parsed.templateIncomes : [];
-      const normalizedTemplate = recalculateIncomePercentages(
-        templateRaw.map(parseIncomeEntry),
-      ).map(cloneForTemplate);
-      syncTemplate(normalizedTemplate);
-
-      const parsedIncomes = Object.entries(parsed?.incomesByMonth ?? {}).reduce<
-        Record<string, IncomeEntry[]>
-      >((acc, [key, value]) => {
-        if (!Array.isArray(value)) {
-          return acc;
-        }
-        const normalized = recalculateIncomePercentages(value.map(parseIncomeEntry));
-        acc[key] = normalized;
-        return acc;
-      }, {});
-      setIncomesByMonth(parsedIncomes);
-
-      const parsedExpenses = Array.isArray(parsed?.expenses)
-        ? parsed.expenses.map(parseBudgetItem)
-        : [];
-      setExpenses(parsedExpenses);
-
-      const incomePersonaNames: Persona[] = [];
-      Object.values(parsedIncomes).forEach((monthIncomes) => {
-        monthIncomes.forEach((income) => {
-          incomePersonaNames.push(income.persona);
-        });
-      });
-
-      const allPersonas = uniquePersonaList([...basePersonas, ...incomePersonaNames]);
-      setPersonas(allPersonas);
-
-      const themesRaw = isRecord(parsed?.personaThemes) ? parsed.personaThemes : {};
-      const parsedThemes = Object.entries(themesRaw).reduce<Record<string, number>>(
-        (acc, [key, value]) => {
-          if (typeof key !== 'string') {
-            return acc;
-          }
-          const trimmed = normalizePersonaName(key);
-          const numericValue = Number(value);
-          if (!trimmed || Number.isNaN(numericValue)) {
-            return acc;
-          }
-          acc[trimmed] = normalizeHue(numericValue);
-          return acc;
-        },
-        {},
-      );
-
-      setPersonaThemes(() => {
-        const next = { ...parsedThemes };
-        allPersonas.forEach((personaName, index) => {
-          const key = normalizePersonaName(personaName);
-          if (!key) {
-            return;
-          }
-          if (next[key] === undefined) {
-            const defaultHue = DEFAULT_PERSONA_HUES[index % DEFAULT_PERSONA_HUES.length];
-            next[key] = normalizeHue(defaultHue);
-          }
-        });
-        return next;
-      });
     } catch (error) {
       console.error('No se pudo cargar el presupuesto local:', error);
     } finally {
       setHasHydrated(true);
     }
-  }, []);
+  }, [activeBudgetId, applyPersistedState, initializeEmptyState, isLoadingBudgets]);
 
   useEffect(() => {
-    if (!hasHydrated || typeof window === 'undefined') {
+    if (!hasHydrated || !activeBudgetId) {
+      lastSyncedSnapshotRef.current = null;
+      setRemoteSyncStatus('idle');
+      return;
+    }
+
+    let cancelled = false;
+    setRemoteSyncStatus('loading');
+
+    const fetchRemoteState = async () => {
+      const { data, error } = await supabase
+        .from('budget_states')
+        .select('state')
+        .eq('budget_id', activeBudgetId)
+        .maybeSingle();
+
+      if (cancelled) {
+        return;
+      }
+
+      if (error) {
+        console.error('No se pudo obtener el presupuesto remoto:', error);
+        setRemoteSyncStatus('ready');
+        return;
+      }
+
+      if (data?.state) {
+        const sanitized = sanitizeBudgetState(data.state);
+        if (sanitized) {
+          applyPersistedState(sanitized);
+          lastSyncedSnapshotRef.current = JSON.stringify(sanitized);
+        }
+      } else {
+        lastSyncedSnapshotRef.current = null;
+      }
+
+      setRemoteSyncStatus('ready');
+    };
+
+    fetchRemoteState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeBudgetId, applyPersistedState, hasHydrated, supabase]);
+
+  useEffect(() => {
+    if (!activeBudgetId || !hasHydrated || remoteSyncStatus !== 'ready') {
+      return;
+    }
+
+    const snapshot = createSnapshot();
+    const snapshotString = JSON.stringify(snapshot);
+
+    if (snapshotString === lastSyncedSnapshotRef.current) {
+      return;
+    }
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = setTimeout(() => {
+      saveTimeoutRef.current = null;
+
+      void (async () => {
+        const { error } = await supabase
+          .from('budget_states')
+          .upsert({
+            budget_id: activeBudgetId,
+            state: snapshot,
+          });
+
+        if (error) {
+          console.error('No se pudo guardar el presupuesto remoto:', error);
+          return;
+        }
+
+        lastSyncedSnapshotRef.current = snapshotString;
+      })();
+    }, REMOTE_SAVE_DEBOUNCE);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+    };
+  }, [activeBudgetId, createSnapshot, hasHydrated, remoteSyncStatus, supabase]);
+
+  useEffect(() => {
+    if (!hasHydrated || typeof window === 'undefined' || !activeBudgetId) {
       return;
     }
 
     try {
-      const payload = {
-        selectedMonth,
-        selectedYear,
-        budgetName,
-        personas,
-        incomesByMonth,
-        expenses,
-        templateIncomes,
-        personaThemes,
-      };
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      const snapshot = createSnapshot();
+      window.localStorage.setItem(storageKeyForBudget(activeBudgetId), JSON.stringify(snapshot));
     } catch (error) {
       console.error('No se pudo guardar el presupuesto local:', error);
     }
-  }, [hasHydrated, selectedMonth, selectedYear, budgetName, personas, incomesByMonth, expenses, templateIncomes, personaThemes]);
+  }, [activeBudgetId, createSnapshot, hasHydrated]);
 
   useEffect(() => {
     if (!hasHydrated) {
@@ -458,6 +1135,21 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       ...prev,
       [trimmed]: normalizeHue(hue),
     }));
+  };
+
+  const registerExpenseCategory = (categoria: string) => {
+    const trimmed = normalizeCategoryName(categoria);
+    if (!trimmed) {
+      return;
+    }
+
+    setExpenseCategories((prev) => {
+      const exists = prev.some((existing) => existing.toLowerCase() === trimmed.toLowerCase());
+      if (exists) {
+        return prev;
+      }
+      return [...prev, trimmed];
+    });
   };
 
   const registerPersona = (name: Persona) => {
@@ -549,19 +1241,12 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
   };
 
   const resetBudget = () => {
-    const now = new Date();
-    setSelectedMonth(now.getMonth());
-    setSelectedYear(now.getFullYear());
-    setBudgetName('');
-    setPersonas([]);
-    setPersonaThemes({});
-    setIncomesByMonth({});
-    setExpenses([]);
-    syncTemplate([]);
+    initializeEmptyState();
+    lastSyncedSnapshotRef.current = null;
 
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && activeBudgetId) {
       try {
-        window.localStorage.removeItem(STORAGE_KEY);
+        window.localStorage.removeItem(storageKeyForBudget(activeBudgetId));
       } catch (error) {
         console.error('No se pudo limpiar el almacenamiento local:', error);
       }
@@ -639,6 +1324,10 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
 
     const concepto = movement.categoria || movement.descripcion || 'Gasto';
 
+    if (movement.categoria) {
+      registerExpenseCategory(movement.categoria);
+    }
+
     setExpenses((prevExpenses) => [
       ...prevExpenses,
       {
@@ -652,6 +1341,168 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       },
     ]);
   };
+
+  const addVariableExpense = (expense: VariableExpenseFormData) => {
+    const monto = Number.parseFloat(expense.monto) || 0;
+    const categoria = expense.categoria?.trim();
+    const concepto = expense.concepto?.trim() || 'Gasto';
+    const fecha = expense.fecha?.trim();
+    const nota = expense.nota?.trim();
+
+    if (categoria) {
+      registerExpenseCategory(categoria);
+    }
+
+    const entry: VariableExpense = {
+      id: createId(),
+      concepto,
+      monto,
+      categoria: categoria || undefined,
+      fecha: fecha || undefined,
+      nota: nota || undefined,
+    };
+
+    setVariableExpensesByMonth((prev) => {
+      const current = prev[currentMonthKey] ?? [];
+      return {
+        ...prev,
+        [currentMonthKey]: [...current, entry],
+      };
+    });
+  };
+
+  const updateVariableExpense = (updatedExpense: VariableExpense) => {
+    if (updatedExpense.categoria) {
+      registerExpenseCategory(updatedExpense.categoria);
+    }
+
+    setVariableExpensesByMonth((prev) => {
+      const current = prev[currentMonthKey] ?? [];
+      const next = current.map((expense) =>
+        expense.id === updatedExpense.id ? { ...updatedExpense } : expense,
+      );
+      return {
+        ...prev,
+        [currentMonthKey]: next,
+      };
+    });
+  };
+
+  const removeVariableExpense = (id: string) => {
+    setVariableExpensesByMonth((prev) => {
+      const current = prev[currentMonthKey] ?? [];
+      const next = current.filter((expense) => expense.id !== id);
+      if (next.length === 0) {
+        const rest = { ...prev };
+        delete rest[currentMonthKey];
+        return rest;
+      }
+      return {
+        ...prev,
+        [currentMonthKey]: next,
+      };
+    });
+  };
+
+  const inviteToBudget = useCallback(
+    async (email: string) => {
+      if (!activeBudgetId || activeBudgetRole !== 'owner') {
+        return null;
+      }
+
+      const normalizedEmail = email.trim();
+      if (!normalizedEmail) {
+        return null;
+      }
+
+      const { data, error } = await supabase.rpc('create_budget_invite', {
+        p_budget_id: activeBudgetId,
+        p_email: normalizedEmail,
+      });
+
+      if (error) {
+        console.error('No se pudo enviar la invitación al presupuesto:', error);
+        throw error;
+      }
+
+      if (!data) {
+        return null;
+      }
+
+      const invite: BudgetInviteSummary = {
+        id: data.id,
+        budgetId: data.budget_id,
+        budgetName: data.budget_name,
+        email: data.email,
+        role: (data.role as BudgetRole) ?? 'editor',
+        status: (data.status as InviteStatus) ?? 'pending',
+        token: data.token,
+        invitedBy: data.invited_by,
+        createdAt: data.created_at,
+        acceptedAt: data.accepted_at,
+      };
+
+      await refreshOutgoingInvites(activeBudgetId);
+      await refreshIncomingInvites();
+
+      return invite;
+    },
+    [activeBudgetId, activeBudgetRole, refreshIncomingInvites, refreshOutgoingInvites, supabase],
+  );
+
+  const revokeInvite = useCallback(
+    async (inviteId: string) => {
+      if (!activeBudgetId || activeBudgetRole !== 'owner') {
+        return;
+      }
+      const trimmedId = inviteId.trim();
+      if (!trimmedId) {
+        return;
+      }
+
+      const { error } = await supabase.rpc('revoke_budget_invite', {
+        p_invite_id: trimmedId,
+      });
+
+      if (error) {
+        console.error('No se pudo revocar la invitación:', error);
+        throw error;
+      }
+
+      await refreshOutgoingInvites(activeBudgetId);
+    },
+    [activeBudgetId, activeBudgetRole, refreshOutgoingInvites, supabase],
+  );
+
+  const acceptInvite = useCallback(
+    async (token: string) => {
+      const normalizedToken = token.trim();
+      if (!normalizedToken) {
+        return null;
+      }
+
+      const { data, error } = await supabase.rpc('accept_budget_invite', {
+        p_token: normalizedToken,
+      });
+
+      if (error) {
+        console.error('No se pudo aceptar la invitación al presupuesto:', error);
+        throw error;
+      }
+
+      const budgetIdAccepted = typeof data === 'string' ? data : null;
+
+      await refreshIncomingInvites();
+      await fetchBudgets(budgetIdAccepted ?? undefined);
+
+      if (budgetIdAccepted) {
+        await refreshBudgetMembers(budgetIdAccepted);
+      }
+
+      return budgetIdAccepted;
+    },
+    [fetchBudgets, refreshBudgetMembers, refreshIncomingInvites, supabase],
+  );
 
   const updatePersonName = (id: string, newName: Persona) => {
     const trimmed = normalizePersonaName(newName);
@@ -693,6 +1544,10 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       prevExpenses.map((expense) => {
         if (expense.id !== updatedItem.id) {
           return expense;
+        }
+
+        if (updatedItem.categoria) {
+          registerExpenseCategory(updatedItem.categoria);
         }
 
         const nextIsPagado =
@@ -752,11 +1607,21 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       value={{
         selectedMonth,
         selectedYear,
+        budgets,
+        activeBudgetId,
+        activeBudgetRole,
+        members,
+        outgoingInvites,
+        incomingInvites,
+        isLoadingBudgets,
+        isBudgetAdmin,
         incomes,
         expenses,
+        variableExpenses,
         budgetName,
         personaOptions,
         personas,
+        setActiveBudget,
         setSelectedMonth,
         setSelectedYear,
         setBudgetName,
@@ -766,6 +1631,11 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
         getPersonaTotals,
         toggleRecibido,
         addMovement,
+        addVariableExpense,
+        inviteToBudget,
+        revokeInvite,
+        acceptInvite,
+        refreshMembership,
         renamePersona,
         resetBudget,
         updatePersonName,
@@ -773,11 +1643,15 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
         updateBudgetItem,
         removeIncome,
         removeBudgetItem,
+        updateVariableExpense,
+        removeVariableExpense,
         personaThemes,
         setPersonaTheme: setPersonaThemeValue,
         updateExpenseName,
         toggleExpensePaid,
         getMonthName,
+        expenseCategories,
+        registerExpenseCategory,
       }}
     >
       {children}
