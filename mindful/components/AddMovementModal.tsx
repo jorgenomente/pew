@@ -221,6 +221,124 @@ export function AddMovementModal({
     setFormData(createInitialFormState(personaAfterSubmit || resolvedPersona));
   };
 
+  const descriptionField = (
+    <div className="space-y-2">
+      <label className="flex items-center gap-2 text-sm opacity-70">
+        <FileText className="w-4 h-4" />
+        {descripcionLabel}
+      </label>
+      <motion.input
+        whileFocus={{
+          boxShadow: tipo === 'income'
+            ? '0 0 0 3px rgba(126, 212, 193, 0.2)'
+            : '0 0 0 3px rgba(199, 140, 96, 0.2)',
+        }}
+        type="text"
+        value={formData.descripcion}
+        onChange={(e) => {
+          const value = e.target.value;
+          setFormData((prev) => ({
+            ...prev,
+            descripcion: value,
+            categoria: incomeOnly ? value : prev.categoria,
+          }));
+        }}
+        placeholder={descripcionPlaceholder}
+        className="w-full px-4 py-3 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/40 transition-all outline-none placeholder:opacity-40"
+        required
+      />
+    </div>
+  );
+
+  const dateField = (
+    <div className="space-y-2">
+      <label className="flex items-center gap-2 text-sm opacity-70">
+        <Calendar className="w-4 h-4" />
+        {fechaLabel}
+      </label>
+      <motion.input
+        whileFocus={{
+          boxShadow: tipo === 'income'
+            ? '0 0 0 3px rgba(126, 212, 193, 0.2)'
+            : '0 0 0 3px rgba(199, 140, 96, 0.2)',
+        }}
+        type="date"
+        value={formData.fecha}
+        onChange={(e) => setFormData({ ...formData, fecha: e.target.value })}
+        className="w-full px-4 py-3 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/40 transition-all outline-none"
+        required={incomeOnly || tipo === 'income'}
+      />
+    </div>
+  );
+
+  const categoryField = (
+    <div className="space-y-2">
+      <label className="flex items-center gap-2 text-sm opacity-70">
+        <Tag className="w-4 h-4" />
+        Categoría
+      </label>
+      <motion.select
+        whileFocus={{
+          boxShadow: tipo === 'income'
+            ? '0 0 0 3px rgba(126, 212, 193, 0.2)'
+            : '0 0 0 3px rgba(199, 140, 96, 0.2)',
+        }}
+        value={formData.categoria}
+        onChange={(e) => setFormData({ ...formData, categoria: e.target.value })}
+        className="w-full px-4 py-3 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/40 transition-all outline-none"
+        required
+      >
+        <option value="">Seleccioná una categoría</option>
+        {categorias.map((cat) => (
+          <option key={cat} value={cat}>
+            {cat}
+          </option>
+        ))}
+      </motion.select>
+    </div>
+  );
+
+  const amountField = (
+    <div className="space-y-2">
+      <label className="flex items-center gap-2 text-sm opacity-70">
+        <DollarSign className="w-4 h-4" />
+        {montoLabel}
+      </label>
+      <motion.div
+        whileHover={{ scale: 1.01 }}
+        className={`relative rounded-3xl border border-white/40 backdrop-blur-sm shadow-inner ${
+          tipo === 'income'
+            ? 'bg-gradient-to-r from-[#7ED4C1]/20 via-white/80 to-white/60'
+            : 'bg-gradient-to-r from-[#C78C60]/20 via-white/80 to-white/60'
+        }`}
+      >
+        <span className="absolute left-6 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#0F3C3B]/60">
+          ARS
+        </span>
+        <motion.input
+          whileFocus={{
+            boxShadow: tipo === 'income'
+              ? '0 0 0 4px rgba(126, 212, 193, 0.25)'
+              : '0 0 0 4px rgba(199, 140, 96, 0.25)',
+          }}
+          type="text"
+          inputMode="decimal"
+          value={formattedMonto}
+          onChange={(e) => {
+            const normalized = normalizeAmountInput(e.target.value);
+            setFormData((prev) => ({ ...prev, monto: normalized }));
+          }}
+          placeholder="0,00"
+          className="w-full bg-transparent pl-20 pr-6 py-5 text-3xl font-semibold tracking-tight text-[#0F3C3B] placeholder:opacity-30 outline-none"
+          required
+        />
+      </motion.div>
+      <p className="text-xs opacity-60 mt-2" style={{ color: '#597370' }}>
+        Podés usar punto o coma para los decimales.
+      </p>
+    </div>
+  );
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -323,120 +441,20 @@ export function AddMovementModal({
                     </div>
                   )}
 
-                  {/* Fecha */}
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-sm opacity-70">
-                      <Calendar className="w-4 h-4" />
-                      {fechaLabel}
-                    </label>
-                    <motion.input
-                      whileFocus={{
-                        boxShadow: tipo === 'income' 
-                          ? '0 0 0 3px rgba(126, 212, 193, 0.2)'
-                          : '0 0 0 3px rgba(199, 140, 96, 0.2)',
-                      }}
-                      type="date"
-                      value={formData.fecha}
-                      onChange={(e) => setFormData({ ...formData, fecha: e.target.value })}
-                      className="w-full px-4 py-3 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/40 transition-all outline-none"
-                      required={incomeOnly || tipo === 'income'}
-                    />
-                  </div>
-
-                  {!incomeOnly && (
-                    <div className="space-y-2">
-                      <label className="flex items-center gap-2 text-sm opacity-70">
-                        <Tag className="w-4 h-4" />
-                        Categoría
-                      </label>
-                      <motion.select
-                        whileFocus={{
-                          boxShadow: tipo === 'income' 
-                            ? '0 0 0 3px rgba(126, 212, 193, 0.2)'
-                            : '0 0 0 3px rgba(199, 140, 96, 0.2)',
-                        }}
-                        value={formData.categoria}
-                        onChange={(e) => setFormData({ ...formData, categoria: e.target.value })}
-                        className="w-full px-4 py-3 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/40 transition-all outline-none"
-                        required
-                      >
-                        <option value="">Seleccioná una categoría</option>
-                        {categorias.map((cat) => (
-                          <option key={cat} value={cat}>
-                            {cat}
-                          </option>
-                        ))}
-                      </motion.select>
-                    </div>
+                  {expenseOnly ? (
+                    <>
+                      {descriptionField}
+                      {dateField}
+                      {amountField}
+                    </>
+                  ) : (
+                    <>
+                      {dateField}
+                      {!incomeOnly && categoryField}
+                      {descriptionField}
+                      {amountField}
+                    </>
                   )}
-
-                  {/* Descripción */}
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-sm opacity-70">
-                      <FileText className="w-4 h-4" />
-                      {descripcionLabel}
-                    </label>
-                      <motion.input
-                        whileFocus={{
-                          boxShadow: tipo === 'income' 
-                            ? '0 0 0 3px rgba(126, 212, 193, 0.2)'
-                            : '0 0 0 3px rgba(199, 140, 96, 0.2)',
-                      }}
-                      type="text"
-                      value={formData.descripcion}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                          setFormData((prev) => ({
-                            ...prev,
-                            descripcion: value,
-                            categoria: incomeOnly ? value : prev.categoria,
-                          }));
-                        }}
-                        placeholder={descripcionPlaceholder}
-                        className="w-full px-4 py-3 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/40 transition-all outline-none placeholder:opacity-40"
-                        required
-                    />
-                  </div>
-
-                  {/* Monto */}
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-sm opacity-70">
-                      <DollarSign className="w-4 h-4" />
-                      {montoLabel}
-                    </label>
-                    <motion.div
-                      whileHover={{ scale: 1.01 }}
-                      className={`relative rounded-3xl border border-white/40 backdrop-blur-sm shadow-inner ${
-                        tipo === 'income'
-                          ? 'bg-gradient-to-r from-[#7ED4C1]/20 via-white/80 to-white/60'
-                          : 'bg-gradient-to-r from-[#C78C60]/20 via-white/80 to-white/60'
-                      }`}
-                    >
-                      <span className="absolute left-6 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#0F3C3B]/60">
-                        ARS
-                      </span>
-                      <motion.input
-                        whileFocus={{
-                          boxShadow: tipo === 'income'
-                            ? '0 0 0 4px rgba(126, 212, 193, 0.25)'
-                            : '0 0 0 4px rgba(199, 140, 96, 0.25)',
-                        }}
-                        type="text"
-                        inputMode="decimal"
-                        value={formattedMonto}
-                        onChange={(e) => {
-                          const normalized = normalizeAmountInput(e.target.value);
-                          setFormData((prev) => ({ ...prev, monto: normalized }));
-                        }}
-                        placeholder="0,00"
-                        className="w-full bg-transparent pl-20 pr-6 py-5 text-3xl font-semibold tracking-tight text-[#0F3C3B] placeholder:opacity-30 outline-none"
-                        required
-                      />
-                    </motion.div>
-                    <p className="text-xs opacity-60 mt-2" style={{ color: '#597370' }}>
-                      Podés usar punto o coma para los decimales.
-                    </p>
-                  </div>
 
                   <div
                     className="sticky pt-6"
