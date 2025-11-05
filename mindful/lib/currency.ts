@@ -49,6 +49,8 @@ const extractSeparators = (
   return { group, decimal, symbol };
 };
 
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const buildCurrencyConfig = (definition: CurrencyDefinition): CurrencyFormatConfig => {
   const fractionDigits =
     typeof definition.fractionDigits === 'number' ? definition.fractionDigits : 2;
@@ -100,17 +102,38 @@ export const normalizeAmountInput = (
     return '';
   }
 
-  const cleaned = input.replace(/\s+/g, '').replace(/[^\d.,]/g, '');
+  const trimmed = input.replace(/\s+/g, '');
+  const cleaned = trimmed.replace(/[^\d.,]/g, '');
   if (!cleaned) {
     return '';
   }
 
-  const lastComma = cleaned.lastIndexOf(',');
-  const lastDot = cleaned.lastIndexOf('.');
-  const decimalIndex = Math.max(lastComma, lastDot);
+  const withoutGroup = config.groupSeparator
+    ? cleaned.replace(new RegExp(escapeRegExp(config.groupSeparator), 'g'), '')
+    : cleaned;
+
+  if (!withoutGroup) {
+    return '';
+  }
+
+  const decimalCandidates = [config.decimalSeparator];
+  const alternateDecimal = config.decimalSeparator === '.' ? ',' : '.';
+  if (!decimalCandidates.includes(alternateDecimal)) {
+    decimalCandidates.push(alternateDecimal);
+  }
+
+  let decimalIndex = -1;
+  if (config.fractionDigits > 0) {
+    for (const candidate of decimalCandidates) {
+      const candidateIndex = withoutGroup.lastIndexOf(candidate);
+      if (candidateIndex > decimalIndex) {
+        decimalIndex = candidateIndex;
+      }
+    }
+  }
 
   if (decimalIndex === -1) {
-    const integerDigits = cleaned.replace(/\D/g, '');
+    const integerDigits = withoutGroup.replace(/\D/g, '');
     if (!integerDigits) {
       return '';
     }
@@ -118,8 +141,8 @@ export const normalizeAmountInput = (
     return normalized || '0';
   }
 
-  const integerPartRaw = cleaned.slice(0, decimalIndex).replace(/\D/g, '');
-  const decimalPartRaw = cleaned.slice(decimalIndex + 1).replace(/\D/g, '');
+  const integerPartRaw = withoutGroup.slice(0, decimalIndex).replace(/\D/g, '');
+  const decimalPartRaw = withoutGroup.slice(decimalIndex + 1).replace(/\D/g, '');
 
   const limitedDecimal = decimalPartRaw.slice(0, config.fractionDigits);
 

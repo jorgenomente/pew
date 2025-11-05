@@ -106,7 +106,6 @@ export function ResetPasswordScreen() {
       });
 
       router.replace("/");
-      router.refresh();
     });
   };
 

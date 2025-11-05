@@ -49,6 +49,7 @@ export interface BudgetItem {
   icon?: IconComponent;
   categoria?: string;
   nota?: string;
+  fechaPago?: string;
 }
 
 export interface VariableExpense {
@@ -76,10 +77,9 @@ type BudgetRelation = {
   owner_id: string;
 };
 
-type MembershipWithBudget = {
+type MembershipRow = {
   budget_id: string;
   role: BudgetRole | string | null;
-  budgets?: BudgetRelation | BudgetRelation[];
 };
 
 interface BudgetMemberSummary {
@@ -148,6 +148,7 @@ interface BudgetContextType {
   setPersonaTheme: (persona: Persona, hue: number) => void;
   updateExpenseName: (id: string, newName: string) => void;
   toggleExpensePaid: (id: string) => void;
+  updateExpensePaymentDate: (id: string, fecha: string | null) => void;
   getMonthName: () => string;
   expenseCategories: string[];
   registerExpenseCategory: (categoria: string) => void;
@@ -166,6 +167,33 @@ const meses = [
 
 const getMonthKey = (year: number, month: number) =>
   `${year}-${String(month + 1).padStart(2, '0')}`;
+
+const generateUuid = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  const fallbackRandomValues = new Uint8Array(16);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(fallbackRandomValues);
+  } else {
+    for (let i = 0; i < fallbackRandomValues.length; i += 1) {
+      fallbackRandomValues[i] = Math.floor(Math.random() * 256);
+    }
+  }
+
+  fallbackRandomValues[6] = (fallbackRandomValues[6] & 0x0f) | 0x40;
+  fallbackRandomValues[8] = (fallbackRandomValues[8] & 0x3f) | 0x80;
+
+  const hex = Array.from(fallbackRandomValues, (byte) => byte.toString(16).padStart(2, '0'));
+  return (
+    `${hex[0]}${hex[1]}${hex[2]}${hex[3]}-` +
+    `${hex[4]}${hex[5]}-` +
+    `${hex[6]}${hex[7]}-` +
+    `${hex[8]}${hex[9]}-` +
+    `${hex[10]}${hex[11]}${hex[12]}${hex[13]}${hex[14]}${hex[15]}`
+  );
+};
 
 const recalculateIncomePercentages = (incomeList: IncomeEntry[]) => {
   const total = incomeList.reduce((sum, income) => sum + income.monto, 0);
@@ -322,6 +350,7 @@ const parseBudgetItem = (item: unknown): BudgetItem => {
   const categoriaRaw = record.categoria;
   const notaRaw = record.nota;
   const isPagadoRaw = record.isPagado;
+  const fechaPagoRaw = record.fechaPago;
 
   return {
     id: typeof idRaw === 'string' && idRaw ? idRaw : createId(),
@@ -334,6 +363,7 @@ const parseBudgetItem = (item: unknown): BudgetItem => {
     icon: iconRaw as IconComponent | undefined,
     categoria: typeof categoriaRaw === 'string' ? categoriaRaw : undefined,
     nota: typeof notaRaw === 'string' ? notaRaw : undefined,
+    fechaPago: typeof fechaPagoRaw === 'string' ? fechaPagoRaw : undefined,
   };
 };
 
@@ -653,37 +683,30 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
 
     setIsLoadingBudgets(true);
 
-    const membershipQuery = supabase
-      .from('budget_members')
-      .select(`
-        budget_id,
-        role,
-        budgets!inner (
-          id,
-          name,
-          owner_id
-        )
-      `)
-      .eq('user_id', userId)
-      .order('created_at', { ascending: true });
+    const runMembershipQuery = () =>
+      supabase
+        .from('budget_members')
+        .select('budget_id, role')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: true });
 
-    const { data, error } = await membershipQuery;
+    const { data, error } = await runMembershipQuery();
 
     if (error) {
-      console.error('No se pudieron cargar tus presupuestos compartidos:', error);
+      console.error('No se pudieron cargar tus presupuestos compartidos:', error?.message ?? error);
       setIsLoadingBudgets(false);
       return;
     }
 
-    let memberships = data ?? [];
+    let memberships = (data ?? []) as MembershipRow[];
 
     if (memberships.length === 0) {
       const defaultBudgetName = 'Mi presupuesto mindful';
-      const { data: createdBudget, error: createBudgetError } = await supabase
+      const nextBudgetId = generateUuid();
+
+      const { error: createBudgetError } = await supabase
         .from('budgets')
-        .insert({ owner_id: userId, name: defaultBudgetName })
-        .select('id, owner_id')
-        .single();
+        .insert({ id: nextBudgetId, owner_id: userId, name: defaultBudgetName });
 
       if (createBudgetError) {
         console.error('No se pudo crear el presupuesto inicial:', createBudgetError);
@@ -692,7 +715,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       }
 
       const { error: membershipError } = await supabase.from('budget_members').insert({
-        budget_id: createdBudget?.id,
+        budget_id: nextBudgetId,
         user_id: userId,
         email: userEmail,
         role: 'owner',
@@ -704,19 +727,44 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const retry = await membershipQuery;
-      if (retry.error) {
-        console.error('No se pudieron cargar tus presupuestos compartidos:', retry.error);
+      const { data: retryData, error: retryError } = await runMembershipQuery();
+      if (retryError) {
+        console.error('No se pudieron cargar tus presupuestos compartidos:', retryError?.message ?? retryError);
         setIsLoadingBudgets(false);
         return;
       }
-      memberships = retry.data ?? [];
+      memberships = (retryData ?? []) as MembershipRow[];
     }
 
-    const mappedBudgets: BudgetSummary[] = memberships.map((membershipRaw) => {
-      const membership = membershipRaw as MembershipWithBudget;
-      const relatedBudgets = membership.budgets;
-      const budgetData = Array.isArray(relatedBudgets) ? relatedBudgets[0] : relatedBudgets;
+    const budgetIds = memberships
+      .map((membership) => membership.budget_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+    let budgetsById: Record<string, BudgetRelation> = {};
+
+    if (budgetIds.length > 0) {
+      const { data: budgetsData, error: budgetsError } = await supabase
+        .from('budgets')
+        .select('id, name, owner_id')
+        .in('id', budgetIds);
+
+      if (budgetsError) {
+        console.error(
+          'No se pudieron cargar los detalles de tus presupuestos compartidos:',
+          budgetsError?.message ?? budgetsError,
+        );
+        setIsLoadingBudgets(false);
+        return;
+      }
+
+      budgetsById = (budgetsData ?? []).reduce<Record<string, BudgetRelation>>((acc, budget) => {
+        acc[budget.id] = budget;
+        return acc;
+      }, {});
+    }
+
+    const mappedBudgets: BudgetSummary[] = memberships.map((membership) => {
+      const budgetData = budgetsById[membership.budget_id];
       const resolvedRole: BudgetRole =
         membership.role === 'owner' || membership.role === 'editor' ? membership.role : 'editor';
       return {
@@ -1363,7 +1411,9 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const concepto = movement.categoria || movement.descripcion || 'Gasto';
+    const descripcion = movement.descripcion?.trim?.() ?? '';
+    const concepto = descripcion || movement.categoria || 'Gasto';
+    const nota = movement.nota?.trim?.() ?? '';
 
     if (movement.categoria) {
       registerExpenseCategory(movement.categoria);
@@ -1378,7 +1428,8 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
         pagado: movement.recibido ? monto : 0,
         isPagado: movement.recibido,
         categoria: movement.categoria,
-        nota: movement.descripcion,
+        nota: nota ? nota : undefined,
+        fechaPago: movement.fecha ? movement.fecha : undefined,
       },
     ]);
   };
@@ -1671,6 +1722,20 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  const updateExpensePaymentDate = (id: string, fecha: string | null) => {
+    const normalized = fecha?.trim() ?? '';
+    setExpenses((prevExpenses) =>
+      prevExpenses.map((expense) =>
+        expense.id === id
+          ? {
+              ...expense,
+              fechaPago: normalized ? normalized : undefined,
+            }
+          : expense,
+      ),
+    );
+  };
+
   const removeIncome = (id: string) => {
     updateTemplateAndSyncAll((entries) =>
       entries.filter((income) => income.id !== id),
@@ -1686,10 +1751,16 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       prevExpenses.map((expense) => {
         if (expense.id === id) {
           const newIsPagado = !expense.isPagado;
+          const todayIso = new Date().toISOString().slice(0, 10);
           return {
             ...expense,
             isPagado: newIsPagado,
             pagado: newIsPagado ? expense.montoEstimado : 0,
+            fechaPago: newIsPagado
+              ? expense.fechaPago && expense.fechaPago.trim()
+                ? expense.fechaPago
+                : todayIso
+              : expense.fechaPago,
           };
         }
         return expense;
@@ -1753,6 +1824,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
         setPersonaTheme: setPersonaThemeValue,
         updateExpenseName,
         toggleExpensePaid,
+        updateExpensePaymentDate,
         getMonthName,
         expenseCategories,
         registerExpenseCategory,

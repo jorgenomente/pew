@@ -73,7 +73,6 @@ function AppContent() {
 
       toast.success("Hasta pronto 🌿");
       router.replace("/auth");
-      router.refresh();
     });
   };
 

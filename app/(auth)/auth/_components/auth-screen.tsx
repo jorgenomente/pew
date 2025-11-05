@@ -126,7 +126,6 @@ export function AuthScreen() {
 
       toast.success("Bienvenida/o de nuevo ✨");
       router.replace("/");
-      router.refresh();
     } catch (error) {
       const description =
         error instanceof Error ? error.message : "Reintenta en unos minutos.";
@@ -203,7 +202,6 @@ export function AuthScreen() {
 
         toast.success("Cuenta creada. Vamos a tu espacio 🌿");
         router.replace("/");
-        router.refresh();
         return;
       }
 

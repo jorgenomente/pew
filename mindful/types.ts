@@ -12,6 +12,7 @@ export interface MovementFormData {
   descripcion: string;
   monto: string;
   recibido: boolean;
+  nota: string;
   tipo: MovementType;
 }
 

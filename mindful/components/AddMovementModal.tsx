@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Calendar, User, FileText, DollarSign, Tag } from 'lucide-react';
+import { X, Calendar, User, FileText, DollarSign, Tag, StickyNote } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MovementFormData, MovementType } from '../types';
 import { useBudget } from '../context/BudgetContext';
@@ -66,6 +66,7 @@ export function AddMovementModal({
       descripcion: '',
       monto: '',
       recibido: false,
+      nota: '',
     }),
     [expenseOnly],
   );
@@ -223,11 +224,14 @@ export function AddMovementModal({
       }
     }
 
+    const nota = formData.nota.trim();
+
     const payload: MovementFormData = {
       ...formData,
       categoria: categoriaSeleccionada || descripcion,
       descripcion,
       persona: expenseOnly ? 'General' : formData.persona,
+      nota,
       tipo: finalTipo,
     };
     onAdd(payload);
@@ -453,6 +457,31 @@ export function AddMovementModal({
     </div>
   );
 
+  const noteField = (
+    <div className="space-y-2">
+      <label className="flex items-center gap-2 text-sm opacity-70">
+        <StickyNote className="w-4 h-4" />
+        Nota importante (opcional)
+      </label>
+      <motion.textarea
+        whileFocus={{
+          boxShadow: tipo === 'income'
+            ? '0 0 0 3px rgba(126, 212, 193, 0.2)'
+            : '0 0 0 3px rgba(199, 140, 96, 0.2)',
+        }}
+        value={formData.nota}
+        onChange={(e) =>
+          setFormData((prev) => ({
+            ...prev,
+            nota: e.target.value,
+          }))
+        }
+        placeholder="Ej: CBU, datos bancarios o instrucciones especiales."
+        className="w-full min-h-[96px] px-4 py-3 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/40 transition-all outline-none placeholder:opacity-40"
+      />
+    </div>
+  );
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -561,6 +590,7 @@ export function AddMovementModal({
                       {categoryField}
                       {dateField}
                       {amountField}
+                      {noteField}
                     </>
                   ) : (
                     <>

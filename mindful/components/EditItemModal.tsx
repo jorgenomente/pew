@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, FileText, DollarSign } from 'lucide-react';
+import { X, FileText, DollarSign, Tag } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import type { BudgetItem, IncomeEntry } from '../context/BudgetContext';
 import { useBudget } from '../context/BudgetContext';
@@ -35,9 +35,10 @@ export function EditItemModal({
   item,
   type,
 }: EditItemModalProps) {
-  const { currencyConfig } = useBudget();
+  const { currencyConfig, expenseCategories } = useBudget();
   const [formData, setFormData] = useState({
     concepto: '',
+    categoria: '',
     montoEstimado: '',
     montoPagado: '',
     nota: '',
@@ -56,6 +57,7 @@ export function EditItemModal({
       const frame = window.requestAnimationFrame(() =>
         setFormData({
           concepto: item.fuente || '',
+          categoria: '',
           montoEstimado: numberToInputValue(item.monto ?? 0, currencyConfig),
           montoPagado: numberToInputValue(item.monto ?? 0, currencyConfig),
           nota: '',
@@ -72,6 +74,7 @@ export function EditItemModal({
     const frame = window.requestAnimationFrame(() =>
       setFormData({
         concepto: item.concepto || '',
+        categoria: item.categoria || '',
         montoEstimado: numberToInputValue(item.montoEstimado ?? 0, currencyConfig),
         montoPagado: numberToInputValue(item.pagado ?? 0, currencyConfig),
         nota: item.nota || '',
@@ -109,10 +112,13 @@ export function EditItemModal({
       const montoPagado = parseAmount(formData.montoPagado);
 
       const isPagado = montoPagado >= montoEstimado;
+      const categoria = formData.categoria.trim();
+      const concepto = formData.concepto.trim();
 
       const updatedBudgetItem: BudgetItem & { nota?: string } = {
         ...item,
-        concepto: formData.concepto,
+        concepto,
+        categoria: categoria || undefined,
         montoEstimado,
         pagado: montoPagado,
         isPagado,
@@ -193,7 +199,7 @@ export function EditItemModal({
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 text-sm opacity-70">
                     <FileText className="w-4 h-4" />
-                    {type === 'income' ? 'Fuente' : 'Concepto'}
+                    {type === 'income' ? 'Fuente' : 'Nombre del gasto'}
                   </label>
                   <motion.input
                     whileFocus={{
@@ -206,6 +212,31 @@ export function EditItemModal({
                     required
                   />
                 </div>
+
+                {type === 'casita' && (
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-sm opacity-70">
+                      <Tag className="w-4 h-4" />
+                      Categoría
+                    </label>
+                    <motion.input
+                      whileFocus={{
+                        boxShadow: '0 0 0 3px rgba(199, 140, 96, 0.2)',
+                      }}
+                      type="text"
+                      value={formData.categoria}
+                      onChange={(e) => setFormData({ ...formData, categoria: e.target.value })}
+                      className="w-full px-4 py-3 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/40 transition-all outline-none"
+                      placeholder="Ej: Servicios, Hogar..."
+                      list="expense-category-options"
+                    />
+                    <datalist id="expense-category-options">
+                      {expenseCategories.map((option) => (
+                        <option key={option} value={option} />
+                      ))}
+                    </datalist>
+                  </div>
+                )}
 
                 {/* Monto estimado/total */}
                 <div className="space-y-2">

@@ -45,6 +45,7 @@ export function BudgetSection() {
     expenses,
     variableExpenses,
     toggleExpensePaid,
+    updateExpensePaymentDate,
     addVariableExpense,
     removeVariableExpense,
   } = useBudget();
@@ -342,6 +343,7 @@ export function BudgetSection() {
               onAdd={openExpenseModal}
               onEdit={handleEditCasitaItem}
               onTogglePaid={toggleExpensePaid}
+              onUpdatePaymentDate={updateExpensePaymentDate}
             />
 
             <VariableExpensesSection
