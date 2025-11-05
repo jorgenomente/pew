@@ -95,10 +95,36 @@ export function BudgetSharingDialog({ open, onOpenChange }: BudgetSharingDialogP
       setEmail('');
       setInviteRole('viewer');
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'No pudimos enviar la invitación. Intenta nuevamente.';
-      setInviteError(message);
-      toast.error('No pudimos enviar la invitación', { description: message });
+      const baseMessage =
+        error instanceof Error
+          ? error.message
+          : typeof error === 'object' &&
+              error !== null &&
+              'message' in error &&
+              typeof (error as { message?: unknown }).message === 'string'
+            ? (error as { message: string }).message
+            : 'No pudimos enviar la invitación. Intenta nuevamente.';
+      const details =
+        typeof error === 'object' &&
+        error !== null &&
+        'details' in error &&
+        typeof (error as { details?: unknown }).details === 'string'
+          ? (error as { details: string }).details
+          : undefined;
+      const hint =
+        typeof error === 'object' &&
+        error !== null &&
+        'hint' in error &&
+        typeof (error as { hint?: unknown }).hint === 'string'
+          ? (error as { hint: string }).hint
+          : undefined;
+
+      const diagnostic = [details, hint].filter(Boolean).join(' ');
+      const description = diagnostic ? `${baseMessage} (${diagnostic})` : baseMessage;
+
+      setInviteError(description);
+      console.error('Error al enviar invitación:', error);
+      toast.error('No pudimos enviar la invitación', { description });
     } finally {
       setIsSending(false);
     }

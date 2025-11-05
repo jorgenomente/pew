@@ -16,8 +16,8 @@ import { BudgetSharingDialog } from "./components/BudgetSharingDialog";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { BudgetProvider, useBudget } from "./context/BudgetContext";
 import { Bell, User, Plus, UserPlus, Settings } from "lucide-react";
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { useSupabase } from "@/components/supabase-provider";
 import {
@@ -51,6 +51,8 @@ function AppContent() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [acceptingInviteId, setAcceptingInviteId] = useState<string | null>(null);
   const [isSigningOut, startSignOut] = useTransition();
+  const searchParams = useSearchParams();
+  const autoAcceptedTokens = useRef<Set<string>>(new Set());
 
   const handleAddGoal = (goal: GoalFormData) => {
     console.log("New goal:", goal);
@@ -101,6 +103,51 @@ function AppContent() {
     (session?.user.user_metadata?.full_name as string | undefined)?.trim() ||
     session?.user.email ||
     "Tu cuenta";
+
+  useEffect(() => {
+    const token = searchParams.get("invite")?.trim();
+    if (!token || autoAcceptedTokens.current.has(token)) {
+      return;
+    }
+
+    autoAcceptedTokens.current.add(token);
+    let isMounted = true;
+
+    const acceptFromToken = async () => {
+      try {
+        await acceptInvite(token);
+        if (!isMounted) {
+          return;
+        }
+        toast.success("Te sumaste al presupuesto ✨", {
+          description: "Ya podés explorarlo desde la barra inferior.",
+        });
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+        const description =
+          error instanceof Error ? error.message : "Reintenta en unos instantes.";
+        toast.error("No pudimos aceptar la invitación", { description });
+      } finally {
+        if (!isMounted) {
+          return;
+        }
+        const nextParams = new URLSearchParams(searchParams.toString());
+        nextParams.delete("invite");
+        const nextUrl = `${window.location.pathname}${
+          nextParams.size > 0 ? `?${nextParams.toString()}` : ""
+        }${window.location.hash}`;
+        router.replace(nextUrl, { scroll: false });
+      }
+    };
+
+    void acceptFromToken();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [acceptInvite, router, searchParams]);
 
   return (
     <div className="min-h-screen relative overflow-hidden pb-32 bg-gradient-to-br from-[#E9E5DA] via-[#E9E5DA] to-[#D5D9CE]">

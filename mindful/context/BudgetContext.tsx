@@ -1541,9 +1541,34 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       await refreshOutgoingInvites(activeBudgetId);
       await refreshIncomingInvites();
 
+      if (invite.token) {
+        try {
+          const response = await fetch('/api/budget-invite-email', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              email: invite.email,
+              inviteToken: invite.token,
+              budgetName: invite.budgetName,
+              role: invite.role,
+              invitedByEmail: userEmail,
+            }),
+          });
+
+          if (!response.ok) {
+            const message = await response.text();
+            console.error('No se pudo enviar el correo de invitación:', message);
+          }
+        } catch (emailError) {
+          console.error('No se pudo enviar el correo de invitación:', emailError);
+        }
+      }
+
       return invite;
     },
-    [activeBudgetId, activeBudgetRole, refreshIncomingInvites, refreshOutgoingInvites, supabase],
+    [activeBudgetId, activeBudgetRole, refreshIncomingInvites, refreshOutgoingInvites, supabase, userEmail],
   );
 
   const updateMemberRole = useCallback(
